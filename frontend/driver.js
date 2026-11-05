@@ -67,20 +67,48 @@ async function login(e) {
         password: $("login-password").value,
       }),
     });
-    if (data.user.role !== "driver") {
-      session.save(data);
-      session.logout();
-      $("login-error").textContent = "This account is not a driver account.";
-      return;
-    }
-    session.save(data);
-    await window.NexoraDriverNative?.stop().catch(() => {});
-    trackingPaused = false;
-    store.set("nexora_driver_tracking_paused", null);
     $("login-password").value = "";
-    await startApp();
+    await driverSignedIn(data);
   } catch (err) {
     $("login-error").textContent = err.message;
+  }
+}
+
+// Shared by email and phone sign-in.
+async function driverSignedIn(data) {
+  if (data.user.role !== "driver") {
+    session.save(data);
+    session.logout();
+    throw new Error("This account is not a driver account.");
+  }
+  session.save(data);
+  await window.NexoraDriverNative?.stop().catch(() => {});
+  trackingPaused = false;
+  store.set("nexora_driver_tracking_paused", null);
+  await startApp();
+}
+
+const postJson = (path, body) =>
+  api(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) });
+
+// Phone sign-in appears only when the server has an SMS provider configured.
+async function setupPhoneSignIn() {
+  const box = $("phone-auth");
+  if (box.dataset.ready || !window.NexoraPhoneAuth) return;
+  try {
+    const config = await (await fetch("/api/v1/config")).json();
+    if (!config.phone_sign_in) return;
+    box.dataset.ready = "true";
+    NexoraPhoneAuth.mount(box, {
+      request: postJson,
+      role: "driver",
+      country: config.country || "PK",
+      onSignedIn: driverSignedIn,
+    });
+    box.hidden = false;
+    $("phone-divider").hidden = false;
+  } catch {
+    /* Email sign-in remains available. */
   }
 }
 
@@ -95,6 +123,7 @@ async function logout(expired = false) {
   if ($("pod-modal").open) closePodModal();
   online = false;
   showView("login");
+  setupPhoneSignIn();
   if (!expired)
     await Promise.allSettled([
       NexoraNotifications.disable(session.api),
@@ -612,6 +641,8 @@ async function startApp() {
   showView("app");
   try {
     publicConfig = await api("/config");
+    if (publicConfig.phone_sign_in && window.NexoraPhoneAuth)
+      NexoraPhoneAuth.mountVerify($("phone-verify"), { request: postJson });
   } catch (error) {
     $("status-error").textContent = error.message;
   }
@@ -654,6 +685,7 @@ window.addEventListener("pageshow", (event) => {
     /* fall through to login */
   }
   showView("login");
+  setupPhoneSignIn();
 })();
 
 window.addEventListener("nexora:reconnected", () => {

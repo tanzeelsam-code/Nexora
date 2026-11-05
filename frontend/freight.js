@@ -408,6 +408,7 @@
     try {
       const config = await request("/config");
       available = !!config.booking_available;
+      setupPhoneSignIn(config);
       $("cod-currency").textContent =
         `Goods amount in ${config.currency || "PKR"}. Enter 0 if already paid. Delivery fees are separate.`;
     } catch {
@@ -429,6 +430,31 @@
       if (!document.hidden) history();
     }, 10000);
   }
+  async function signedIn(data) {
+    session.save(data);
+    if (data.user.role !== "customer") {
+      session.logout();
+      throw new Error("Use your customer account to book a delivery.");
+    }
+    await start();
+    const action = afterSignIn;
+    afterSignIn = null;
+    if (action) action();
+  }
+  function setupPhoneSignIn(config) {
+    const box = $("phone-auth");
+    if (!config?.phone_sign_in || !window.NexoraPhoneAuth || box.dataset.ready)
+      return;
+    box.dataset.ready = "true";
+    NexoraPhoneAuth.mount(box, {
+      request,
+      role: "customer",
+      country: config.country || "PK",
+      onSignedIn: signedIn,
+    });
+    box.hidden = false;
+    $("phone-divider").hidden = false;
+  }
   $("login").onsubmit = (event) => {
     event.preventDefault();
     task($("login").querySelector("button"), "login-error", async () => {
@@ -436,16 +462,8 @@
         "/auth/login",
         Object.fromEntries(new FormData($("login"))),
       );
-      session.save(data);
-      if (data.user.role !== "customer") {
-        session.logout();
-        throw new Error("Use your customer account to book a delivery.");
-      }
-      $("login").reset();
-      await start();
-      const action = afterSignIn;
-      afterSignIn = null;
-      if (action) action();
+      if (data.user.role === "customer") $("login").reset();
+      await signedIn(data);
     });
   };
   $("logout").onclick = () => {

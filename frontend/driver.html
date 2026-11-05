@@ -8,6 +8,7 @@
 
     <link rel="stylesheet" href="/driver.css" />
     <script src="/ui.js" defer></script>
+    <script src="/phone-auth.js" defer></script>
     <script src="/driver.js" defer></script>
     <script src="/native-driver.js"></script>
     <script src="/session.js"></script>
@@ -31,6 +32,8 @@
           <a href="driver-register.html">Create a driver account</a> ·
           <a href="/">Choose another role</a>
         </p>
+        <div id="phone-auth" hidden></div>
+        <p class="auth-divider" id="phone-divider" hidden>Or use your email</p>
         <form id="login-form" onsubmit="login(event)">
           <div class="input-group">
             <label for="login-email">Email</label>
@@ -69,6 +72,7 @@
 
       <div id="app-view" style="display: none">
         <h1 class="sr-only">Driver workspace</h1>
+        <div id="phone-verify" class="phone-verify-card" hidden></div>
         <!-- Header -->
         <div class="driver-header">
           <div class="driver-profile">

@@ -206,3 +206,51 @@ svg.icon {
 }
 [hidden] { display: none !important; }
 .connection-notice { position: relative; z-index: 1100; padding: 12px 20px; background: #fff1cf; color: #5d3c08; font: 600 14px/1.5 system-ui, sans-serif; text-align: center; }
+
+/* Phone sign-in (phone-auth.js) */
+.phone-auth [hidden],
+.phone-verify [hidden] {
+  display: none !important;
+}
+.phone-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
+.phone-verify-card {
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--green-soft);
+}
+.phone-verify-card p {
+  margin: 0 0 8px;
+}
+.phone-auth .checkbox-label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.phone-auth .checkbox-label input {
+  flex: none;
+  margin-top: 2px;
+}

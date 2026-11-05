@@ -47,10 +47,11 @@
     "Supabase/Postgres storage",
     "Mapbox geocoding and directions",
     "OpenStreetMap map tiles",
-    "Configured browser push provider if enabled"
+    "Configured browser push provider if enabled",
+    "Configured SMS provider for sign-in codes if enabled (receives phone number and code text)"
   ],
   "encryption_in_transit": "HTTPS required by release Android app; verify all deployed services and providers",
-  "account_deletion": "In-app and external web flow plus verified email request; active jobs/settlements require resolution; limited transaction/security records retained",
+  "account_deletion": "In-app and external web flow (password or SMS code for phone-only accounts) plus verified email request; active jobs/settlements require resolution; limited transaction/security records retained",
   "foreground_service": {
     "type": "location",
     "start": "Driver explicitly chooses Go online with location permission from visible driver screen",

@@ -34,7 +34,7 @@ function createPayments({
     if (row.stripe_customer_id) return row.stripe_customer_id;
     const value = await stripe.customers.create(
       {
-        email: user.email,
+        email: user.email || undefined,
         name: `${user.first_name} ${user.last_name}`,
         metadata: { nexora_user_id: user.id },
       },
@@ -368,7 +368,7 @@ function createPayments({
           {
             type: "express",
             country: connectCountry,
-            email: req.user.email,
+            email: req.user.email || undefined,
             capabilities: { transfers: { requested: true } },
             metadata: { nexora_driver_id: req.driver.id },
           },

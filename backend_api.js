@@ -32,6 +32,8 @@ const { registerAccount } = require('./services/account.cjs');
 const { registerSupport } = require('./services/support.cjs');
 const { registerAreas } = require('./services/areas.cjs');
 const { registerMerchants, moneySchema } = require('./services/merchants.cjs');
+const { createSms } = require('./services/sms.cjs');
+const { registerPhoneAuth } = require('./services/phone-auth.cjs');
 
 // ============================================================
 // CONFIGURATION
@@ -3148,7 +3150,11 @@ registerSupport({app,query,validate,authenticate,requireDatabase,requireRole,aud
 const areas=registerAreas({app,query,validate,authenticate,requireDatabase,requireRole,auditLog,
   ready:()=>market.ready && (!isProduction || maps.enabled),timezone:market.timezone,required:areasRequired});
 const merchants=registerMerchants({app,query,transaction,validate,authenticate,requireDatabase,requireRole,market});
+const sms = createSms(environment, { fetch: runtime.fetch || globalThis.fetch, logger, isProduction });
+const phoneAuth = registerPhoneAuth({ app, query, transaction, validate, authenticate, requireDatabase, issueAuthTokens, bcrypt, sms, kv,
+  secret: getEnv('PHONE_CODE_SECRET', config.jwt.secret), country: market.country, clearUserCache: userId => Cache.del(`user:${userId}`) });
 registerAccount({ app,query,transaction,bcrypt,validate,authenticate,requireDatabase,
+  confirmByPhone: phoneAuth.confirmDeletion,
   onDeleted:async userId => {
     await Cache.del(`user:${userId}`);
     // The deletion transaction is already committed. A stale derived view must
@@ -3184,7 +3190,7 @@ async function processBackground(limit = 10) {
   }, limit);
   await payments.sweep(limit);
 }
-app.get('/api/v1/config', async () => ({ maps: maps.enabled, booking_available: market.ready && (!isProduction || maps.enabled) && (!areasRequired || (dbConnected && await areas.hasActiveArea())), area_coverage_required:areasRequired, country:market.country, currency:market.currency, rates:market.rates || null, pricing_configured:market.ready, support_email:'tanzeelsam@gmail.com', account_recovery: 'offline_code', card_payments: cardsEnabled,
+app.get('/api/v1/config', async () => ({ maps: maps.enabled, booking_available: market.ready && (!isProduction || maps.enabled) && (!areasRequired || (dbConnected && await areas.hasActiveArea())), area_coverage_required:areasRequired, country:market.country, currency:market.currency, rates:market.rates || null, pricing_configured:market.ready, support_email:'tanzeelsam@gmail.com', account_recovery: 'offline_code', phone_sign_in: phoneAuth.enabled, card_payments: cardsEnabled,
   stripe_publishable_key: cardsEnabled ? getEnv('STRIPE_PUBLISHABLE_KEY', '') : null,
   push_notifications: notifications.enabled, vapid_public_key: notifications.enabled ? getEnv('VAPID_PUBLIC_KEY', '') : null }));
 app.get('/api/v1/places/search', { preHandler: [authenticate], config: { rateLimit: { max: 20, timeWindow: 60000 } } }, async req => {
@@ -3404,7 +3410,7 @@ async function start() {
       dbConnected = true;
       logger.info('✅ Database connected');
       await ensureOperationalTables();
-      for (const migration of ['20261019085513_booking_payments_notifications.sql','20261024093153_release_recovery_cash_billing.sql','20261024093804_durable_delivery_requests.sql','20261105154028_area_availability_merchant_cod.sql']) {
+      for (const migration of ['20261019085513_booking_payments_notifications.sql','20261024093153_release_recovery_cash_billing.sql','20261024093804_durable_delivery_requests.sql','20261105154028_area_availability_merchant_cod.sql','20261105190000_phone_sign_in.sql']) {
         await db.query(fs.readFileSync(path.join(__dirname,'supabase/migrations',migration),'utf8'));
       }
       logger.info('✅ Operational tables ensured');

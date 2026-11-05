@@ -1,5 +1,5 @@
 /* Only public app-shell files are cached. API responses and map tiles never enter CacheStorage. */
-const SHELL_CACHE = "nexora-shell-v3";
+const SHELL_CACHE = "nexora-shell-v4";
 const SHELL_FILES = [
   "/",
   "/index.html",
@@ -29,6 +29,7 @@ const SHELL_FILES = [
   "/ui.js",
   "/home.js",
   "/session.js",
+  "/phone-auth.js",
   "/notifications.js",
   "/customer.js",
   "/freight.js",

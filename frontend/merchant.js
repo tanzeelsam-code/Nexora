@@ -22,6 +22,7 @@
   function signedOut() {
     sequence++;
     $("merchant-auth").hidden = false;
+    $("phone-auth").hidden = !$("phone-auth").dataset.ready;
     $("merchant-desk").hidden = true;
     $("merchant-logout").hidden = true;
     $("merchant-orders").replaceChildren();
@@ -108,6 +109,7 @@
   }
   async function start() {
     $("merchant-auth").hidden = true;
+    $("phone-auth").hidden = true;
     $("merchant-desk").hidden = false;
     $("merchant-logout").hidden = false;
     await refresh();
@@ -121,20 +123,39 @@
         "/auth/login",
         Object.fromEntries(new FormData(e.currentTarget)),
       );
-      session.save(data);
-      if (data.user.role !== "customer") {
-        session.logout();
-        signedOut();
-        throw new Error("Use a customer account for the merchant desk.");
-      }
+      await signedIn(data);
       $("merchant-login").reset();
-      await start();
     } catch (e) {
       $("login-error").textContent = e.message;
     } finally {
       button.disabled = false;
     }
   };
+  async function signedIn(data) {
+    session.save(data);
+    if (data.user.role !== "customer") {
+      session.logout();
+      signedOut();
+      throw new Error("Use a customer account for the merchant desk.");
+    }
+    await start();
+  }
+  // Phone sign-in appears only when the server has an SMS provider configured.
+  fetch("/api/v1/config")
+    .then((res) => res.json())
+    .then((config) => {
+      if (!config.phone_sign_in || !window.NexoraPhoneAuth) return;
+      const box = $("phone-auth");
+      box.dataset.ready = "true";
+      NexoraPhoneAuth.mount(box, {
+        request: api,
+        role: "customer",
+        country: config.country || "PK",
+        onSignedIn: signedIn,
+      });
+      box.hidden = !$("merchant-desk").hidden;
+    })
+    .catch(() => {});
   $("merchant-logout").onclick = () => {
     session.logout();
     signedOut();
