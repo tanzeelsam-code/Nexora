@@ -44,7 +44,12 @@ node --check services/maps.cjs
 node --check services/jobs.cjs
 node --check services/payments.cjs
 node --check services/notifications.cjs
-node --test scripts/business.test.cjs scripts/market.test.cjs scripts/connectivity.test.cjs scripts/native-driver.test.cjs scripts/booking-ui.test.cjs scripts/workspace-session.test.cjs scripts/tracking.test.cjs scripts/integrations.test.cjs scripts/customer-session.test.cjs
+node --check services/sms.cjs
+node --check services/phone-auth.cjs
+node --check services/driver-wallet.cjs
+node --check services/merchant-tools.cjs
+node --check frontend/phone-auth.js
+node --test scripts/business.test.cjs scripts/phone-auth.test.cjs scripts/driver-wallet.test.cjs scripts/merchant-tools.test.cjs scripts/market.test.cjs scripts/connectivity.test.cjs scripts/native-driver.test.cjs scripts/booking-ui.test.cjs scripts/workspace-session.test.cjs scripts/tracking.test.cjs scripts/integrations.test.cjs scripts/customer-session.test.cjs
 python3 -m py_compile ai_engine.py
 echo "   ✅ Code syntax validation passed."
 

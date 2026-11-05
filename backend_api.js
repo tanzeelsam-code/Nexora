@@ -32,6 +32,10 @@ const { registerAccount } = require('./services/account.cjs');
 const { registerSupport } = require('./services/support.cjs');
 const { registerAreas } = require('./services/areas.cjs');
 const { registerMerchants, moneySchema } = require('./services/merchants.cjs');
+const { createSms } = require('./services/sms.cjs');
+const { registerPhoneAuth } = require('./services/phone-auth.cjs');
+const { registerDriverWallet } = require('./services/driver-wallet.cjs');
+const { registerMerchantTools } = require('./services/merchant-tools.cjs');
 
 // ============================================================
 // CONFIGURATION
@@ -920,6 +924,7 @@ const schemas = {
   requestDelivery: z.object({
     merchant_order_ref: z.string().trim().min(1).max(80).optional(),
     cod_amount: moneySchema.default(0),
+    return_of_delivery_id: z.string().uuid().optional(),
     pickup_lat: z.number().min(-90).max(90),
     pickup_lng: z.number().min(-180).max(180),
     pickup_address: z.string().min(1).max(500),
@@ -1348,9 +1353,10 @@ async function listNearbyDrivers({ lat, lng, serviceType, excludeDriverIds = [] 
       AND $3::service_type = ANY(d.service_types)
       AND NOT (d.id = ANY($4::uuid[]))
       AND ST_DWithin(d.current_location, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, $5)
+      AND ${wallet.dispatchCondition('d.id', '$6', '$7')}
     ORDER BY distance_m
     LIMIT 25
-  `, [lat, lng, serviceType, excludeDriverIds, config.app.driverSearchRadiusKm * 1000]);
+  `, [lat, lng, serviceType, excludeDriverIds, config.app.driverSearchRadiusKm * 1000, wallet.limit, wallet.currency]);
   return rows.map((r) => ({
     ...r,
     lat: Number(r.lat),
@@ -1564,6 +1570,8 @@ async function driverTripAction(driver, tripId, action, body = {}) {
         trip.payment_method === 'cash' ? new Date() : null, trip.stripe_payment_intent_id || null,
       ]);
       if (trip.payment_method === 'card') await jobs.enqueue('capture', `capture:${trip.id}`, { trip_id: trip.id }, client);
+      // Cash rides: the driver keeps the fare and owes the platform its commission.
+      if (trip.payment_method === 'cash') await wallet.recordCommission(client, { driverId: driver.id, tripId: trip.id, amount: platformFee, currency: trip.currency });
       return true;
     });
     if (!result) return bad();
@@ -1942,6 +1950,7 @@ async function driverDeliveryAction(driver, deliveryId, action, body = {}) {
         INSERT INTO payments(payment_ref,delivery_id,customer_id,amount,currency,method,status,gateway,captured_at)
         VALUES($1,$2,$3,$4,$5,'cash','captured','cash',NOW())`,
         [`PAY-${d.delivery_number}`,d.id,d.customer_id,fare,d.currency]);
+      if (d.payment_method === 'cash') await wallet.recordCommission(client, { driverId: driver.id, deliveryId: d.id, amount: platformFee, currency: d.currency });
       await client.query(`
         UPDATE drivers SET total_trips = total_trips + 1, completed_trips = completed_trips + 1,
           total_earnings = total_earnings + $1, status = 'available'
@@ -1992,6 +2001,7 @@ app.post('/api/v1/deliveries/estimate', { preHandler: [authenticate, requireRole
   const body = validate(schemas.requestDelivery, req.body);
   await areas.assertRoute(body, 'delivery');
   await merchants.requireMerchant(req.user.id,body);
+  await merchantTools.assertReturn(req.user.id, body);
   validateDeliveryAvailability(body);
   const pricing = await deliveryPrice(body);
   const quote_token = app.jwt.sign({ type: 'delivery_quote', fingerprint: deliveryFingerprint(body), pricing }, { expiresIn: '5m' });
@@ -2030,6 +2040,7 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
   if (existing) return reply.code(201).send(deliveryCreatedResponse(existing));
   await areas.assertRoute(body, 'delivery');
   await merchants.requireMerchant(req.user.id,body);
+  await merchantTools.assertReturn(req.user.id, body);
   market.requireRates();
   validateDeliveryAvailability(body);
   const deliveryId = uuidv4();
@@ -2058,6 +2069,7 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
     const {rows:[account]} = await client.query('SELECT is_active FROM users WHERE id=$1 FOR UPDATE',[req.user.id]);
     if (!account?.is_active) throw unavailable('This account is no longer active.',401);
     await merchants.requireMerchant(req.user.id,body,client.query.bind(client));
+    await merchantTools.assertReturn(req.user.id, body, client.query.bind(client));
     const {rows:[created]} = await client.query(`
     INSERT INTO deliveries (
       id, delivery_number, customer_id,
@@ -2069,10 +2081,11 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
       cargo_value, is_fragile, requires_refrigeration, temp_min_celsius, temp_max_celsius,
       insurance_requested, insurance_premium,
       base_fare, distance_fare, cold_chain_surcharge,
-      total_fare, currency, status, payment_method, request_key, request_fingerprint, merchant_order_ref, cod_amount
+      total_fare, currency, status, payment_method, request_key, request_fingerprint, merchant_order_ref, cod_amount,
+      return_of_delivery_id
     ) VALUES (
       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-      $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41
+      $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42
     )
     RETURNING *
   `, [
@@ -2085,7 +2098,8 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
     body.cargo_value ?? null, body.is_fragile, body.requires_refrigeration, body.temp_min_celsius ?? null, body.temp_max_celsius ?? null,
     body.insurance_requested, insurancePremium,
     pricing.breakdown?.base_fare ?? null, pricing.breakdown?.distance_fare ?? null, pricing.breakdown?.cold_chain_surcharge ?? null,
-    totalFare, pricing.currency || 'USD', 'pending', 'cash', requestKey, fingerprint, body.merchant_order_ref || null, body.cod_amount
+    totalFare, pricing.currency || 'USD', 'pending', 'cash', requestKey, fingerprint, body.merchant_order_ref || null, body.cod_amount,
+    body.return_of_delivery_id || null
   ]);
     return created;
   });
@@ -2094,6 +2108,7 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
       const saved = await replayExisting();
       if (saved) return reply.code(201).send(deliveryCreatedResponse(saved));
       if(error.constraint==='deliveries_merchant_order_unique') throw unavailable('This order reference already has a delivery. Find it in your merchant desk.',409);
+      if(error.constraint==='deliveries_one_return') throw unavailable('A return is already booked for this delivery.',409);
     }
     throw error;
   }
@@ -2615,6 +2630,10 @@ app.post('/api/v1/driver/status', { preHandler: [authenticate, requireDatabase, 
   }
   if (req.driver.status === 'suspended') {
     return reply.code(403).send({ error: 'Account suspended' });
+  }
+  if (status !== 'offline') {
+    const owed = await wallet.overLimit(req.driver.id);
+    if (owed !== null) return reply.code(403).send({ error: wallet.limitMessage(owed), code: 'cash_limit' });
   }
 
   await query('UPDATE drivers SET status = $1::driver_status, is_online = $2 WHERE id = $3', [status, status !== 'offline', req.driver.id]);
@@ -3148,7 +3167,13 @@ registerSupport({app,query,validate,authenticate,requireDatabase,requireRole,aud
 const areas=registerAreas({app,query,validate,authenticate,requireDatabase,requireRole,auditLog,
   ready:()=>market.ready && (!isProduction || maps.enabled),timezone:market.timezone,required:areasRequired});
 const merchants=registerMerchants({app,query,transaction,validate,authenticate,requireDatabase,requireRole,market});
+const merchantTools = registerMerchantTools({ app, query, transaction, validate, authenticate, requireDatabase, requireRole, market });
+const wallet = registerDriverWallet({ app, query, transaction, validate, authenticate, requireDatabase, requireRole, requireDriver, auditLog, market, env: environment });
+const sms = createSms(environment, { fetch: runtime.fetch || globalThis.fetch, logger, isProduction });
+const phoneAuth = registerPhoneAuth({ app, query, transaction, validate, authenticate, requireDatabase, issueAuthTokens, bcrypt, sms, kv,
+  secret: getEnv('PHONE_CODE_SECRET', config.jwt.secret), country: market.country, clearUserCache: userId => Cache.del(`user:${userId}`) });
 registerAccount({ app,query,transaction,bcrypt,validate,authenticate,requireDatabase,
+  confirmByPhone: phoneAuth.confirmDeletion,
   onDeleted:async userId => {
     await Cache.del(`user:${userId}`);
     // The deletion transaction is already committed. A stale derived view must
@@ -3184,7 +3209,7 @@ async function processBackground(limit = 10) {
   }, limit);
   await payments.sweep(limit);
 }
-app.get('/api/v1/config', async () => ({ maps: maps.enabled, booking_available: market.ready && (!isProduction || maps.enabled) && (!areasRequired || (dbConnected && await areas.hasActiveArea())), area_coverage_required:areasRequired, country:market.country, currency:market.currency, rates:market.rates || null, pricing_configured:market.ready, support_email:'tanzeelsam@gmail.com', account_recovery: 'offline_code', card_payments: cardsEnabled,
+app.get('/api/v1/config', async () => ({ maps: maps.enabled, booking_available: market.ready && (!isProduction || maps.enabled) && (!areasRequired || (dbConnected && await areas.hasActiveArea())), area_coverage_required:areasRequired, country:market.country, currency:market.currency, rates:market.rates || null, pricing_configured:market.ready, support_email:'tanzeelsam@gmail.com', account_recovery: 'offline_code', phone_sign_in: phoneAuth.enabled, card_payments: cardsEnabled,
   stripe_publishable_key: cardsEnabled ? getEnv('STRIPE_PUBLISHABLE_KEY', '') : null,
   push_notifications: notifications.enabled, vapid_public_key: notifications.enabled ? getEnv('VAPID_PUBLIC_KEY', '') : null }));
 app.get('/api/v1/places/search', { preHandler: [authenticate], config: { rateLimit: { max: 20, timeWindow: 60000 } } }, async req => {
@@ -3404,7 +3429,7 @@ async function start() {
       dbConnected = true;
       logger.info('✅ Database connected');
       await ensureOperationalTables();
-      for (const migration of ['20261019085513_booking_payments_notifications.sql','20261024093153_release_recovery_cash_billing.sql','20261024093804_durable_delivery_requests.sql','20261105154028_area_availability_merchant_cod.sql']) {
+      for (const migration of ['20261019085513_booking_payments_notifications.sql','20261024093153_release_recovery_cash_billing.sql','20261024093804_durable_delivery_requests.sql','20261105154028_area_availability_merchant_cod.sql','20261105190000_phone_sign_in.sql','20261105200000_driver_cash_wallet.sql','20261105210000_merchant_imports_returns.sql']) {
         await db.query(fs.readFileSync(path.join(__dirname,'supabase/migrations',migration),'utf8'));
       }
       logger.info('✅ Operational tables ensured');

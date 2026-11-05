@@ -674,3 +674,42 @@ h1 {
     font-size: 15px;
   }
 }
+
+/* Cash wallet */
+.wallet-balance {
+  font-family: var(--heading-font, inherit);
+  font-size: 22px !important;
+  font-weight: 800;
+  margin: 6px 0;
+}
+.wallet-alert {
+  background: #fbefe9;
+  border-left: 3px solid #a63e36;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+.wallet-section details {
+  margin: 10px 0;
+}
+.wallet-section summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #21634c;
+  padding: 6px 0;
+}
+.wallet-section ul {
+  margin: 4px 0 8px 18px;
+  font-size: 13px;
+}
+.wallet-section select {
+  background: white;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.wallet-claim {
+  border-top: 1px solid var(--card-border);
+  padding-top: 6px;
+}

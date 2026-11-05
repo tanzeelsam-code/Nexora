@@ -17,7 +17,8 @@ const pickupSchema = z.object({
   pickup_contact_phone: z.string().trim().min(8).max(20),
 });
 const columns = `d.id,d.delivery_number,d.merchant_order_ref,d.status,d.pickup_address,d.dropoff_address,
-  d.dropoff_contact_name,d.total_fare,d.currency,d.cod_amount,d.cod_collected_at,d.cod_received_at,d.cod_settled_at,d.requested_at,d.tracking_url`;
+  d.dropoff_contact_name,d.total_fare,d.currency,d.cod_amount,d.cod_collected_at,d.cod_received_at,d.cod_settled_at,d.requested_at,d.tracking_url,
+  d.return_of_delivery_id,EXISTS(SELECT 1 FROM deliveries r WHERE r.return_of_delivery_id=d.id AND r.status<>'cancelled') AS return_booked`;
 function registerMerchants({
   app,
   query,
@@ -128,7 +129,7 @@ function registerMerchants({
     );
     const where = [
       "d.customer_id=$1",
-      "(d.merchant_order_ref IS NOT NULL OR d.cod_amount>0)",
+      "(d.merchant_order_ref IS NOT NULL OR d.cod_amount>0 OR d.return_of_delivery_id IS NOT NULL)",
     ];
     const params = [req.user.id];
     if (filter.q) {

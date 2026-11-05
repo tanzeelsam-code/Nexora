@@ -67,20 +67,48 @@ async function login(e) {
         password: $("login-password").value,
       }),
     });
-    if (data.user.role !== "driver") {
-      session.save(data);
-      session.logout();
-      $("login-error").textContent = "This account is not a driver account.";
-      return;
-    }
-    session.save(data);
-    await window.NexoraDriverNative?.stop().catch(() => {});
-    trackingPaused = false;
-    store.set("nexora_driver_tracking_paused", null);
     $("login-password").value = "";
-    await startApp();
+    await driverSignedIn(data);
   } catch (err) {
     $("login-error").textContent = err.message;
+  }
+}
+
+// Shared by email and phone sign-in.
+async function driverSignedIn(data) {
+  if (data.user.role !== "driver") {
+    session.save(data);
+    session.logout();
+    throw new Error("This account is not a driver account.");
+  }
+  session.save(data);
+  await window.NexoraDriverNative?.stop().catch(() => {});
+  trackingPaused = false;
+  store.set("nexora_driver_tracking_paused", null);
+  await startApp();
+}
+
+const postJson = (path, body) =>
+  api(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) });
+
+// Phone sign-in appears only when the server has an SMS provider configured.
+async function setupPhoneSignIn() {
+  const box = $("phone-auth");
+  if (box.dataset.ready || !window.NexoraPhoneAuth) return;
+  try {
+    const config = await (await fetch("/api/v1/config")).json();
+    if (!config.phone_sign_in) return;
+    box.dataset.ready = "true";
+    NexoraPhoneAuth.mount(box, {
+      request: postJson,
+      role: "driver",
+      country: config.country || "PK",
+      onSignedIn: driverSignedIn,
+    });
+    box.hidden = false;
+    $("phone-divider").hidden = false;
+  } catch {
+    /* Email sign-in remains available. */
   }
 }
 
@@ -95,6 +123,7 @@ async function logout(expired = false) {
   if ($("pod-modal").open) closePodModal();
   online = false;
   showView("login");
+  setupPhoneSignIn();
   if (!expired)
     await Promise.allSettled([
       NexoraNotifications.disable(session.api),
@@ -350,6 +379,88 @@ async function loadEarnings() {
   }
 }
 
+const METHOD_NAMES = {
+  easypaisa: "Easypaisa",
+  jazzcash: "JazzCash",
+  bank_transfer: "Bank transfer",
+  cash_office: "Cash at office",
+};
+async function loadWallet() {
+  try {
+    const w = await api("/driver/wallet");
+    const owed = Number(w.balance);
+    $("wallet-balance").textContent =
+      owed > 0
+        ? `You owe ${money(owed, w.currency)}`
+        : owed < 0
+          ? `Credit ${money(-owed, w.currency)}`
+          : "Nothing owed";
+    $("wallet-limit").hidden = !w.over_limit;
+    $("wallet-limit").textContent = w.over_limit
+      ? `Your balance is above the ${money(w.limit, w.currency)} limit. You can't go online or receive new jobs until your payment is confirmed.`
+      : "";
+    $("wallet-goods").hidden = !(Number(w.goods_cash.amount) > 0);
+    $("wallet-goods").textContent = `Goods cash to hand over: ${money(w.goods_cash.amount, w.currency)} from ${w.goods_cash.deliveries} ${w.goods_cash.deliveries === 1 ? "delivery" : "deliveries"}. This belongs to merchants and is separate from your commission.`;
+    $("wallet-accounts").innerHTML = w.payment_accounts.length
+      ? `<p>Pay to:</p><ul>${w.payment_accounts
+          .map(
+            (a) =>
+              `<li><strong>${esc(METHOD_NAMES[a.method])}</strong> · ${esc(a.title)} · ${esc(a.account)}</li>`,
+          )
+          .join("")}</ul>`
+      : "<p>Ask operations which account to pay.</p>";
+    $("wallet-pay").hidden = !(owed - Number(w.pending_confirmation) > 0);
+    $("wallet-amount").max = Math.max(0, owed - Number(w.pending_confirmation)).toFixed(2);
+    $("wallet-claims").innerHTML = w.remittances
+      .slice(0, 5)
+      .map(
+        (r) =>
+          `<p class="wallet-claim">${esc(METHOD_NAMES[r.method])} ${esc(r.reference)} · ${esc(money(r.amount, r.currency))} · <strong>${esc(r.status === "pending" ? "Waiting for confirmation" : r.status === "confirmed" ? "Confirmed" : "Rejected")}</strong>${r.review_note ? ` — ${esc(r.review_note)}` : ""}</p>`,
+      )
+      .join("");
+    $("wallet-entries").innerHTML =
+      w.entries
+        .map((e) => {
+          const label =
+            e.kind === "commission"
+              ? `Commission · ${e.trip_number || e.delivery_number || ""}`
+              : e.kind === "remittance"
+                ? `Payment · ${METHOD_NAMES[e.method] || ""} ${e.reference || ""}`
+                : `Adjustment · ${e.note || ""}`;
+          return `<p>${esc(new Date(e.created_at).toLocaleDateString())} · ${esc(label)} · ${esc(money(e.amount, e.currency))}</p>`;
+        })
+        .join("") || "<p>No cash jobs yet.</p>";
+  } catch (err) {
+    $("wallet-balance").textContent = "—";
+    $("wallet-summary").textContent = err.message;
+  }
+}
+$("wallet-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget,
+    button = form.querySelector("button");
+  button.disabled = true;
+  $("wallet-error").textContent = "";
+  try {
+    const data = await api("/driver/wallet/remittances", {
+      method: "POST",
+      body: {
+        method: form.elements.method.value,
+        reference: form.elements.reference.value.trim(),
+        amount: Number(form.elements.amount.value),
+      },
+    });
+    form.reset();
+    $("wallet-pay").open = false;
+    $("wallet-status").textContent = data.message;
+    await loadWallet();
+  } catch (err) {
+    $("wallet-error").textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 // Which buttons a job shows depends on its status; each maps to a driver action endpoint.
 const DELIVERY_ACTIONS = {
   pending: [
@@ -482,7 +593,7 @@ $("jobs").addEventListener("click", async (e) => {
       method: "POST",
       body: JSON.stringify(body),
     });
-    await Promise.all([loadJobs(), loadEarnings()]);
+    await Promise.all([loadJobs(), loadEarnings(), loadWallet()]);
   } catch (err) {
     // Offers expire after a short window; a 404/409 usually means the job moved on.
     const stale = /not found|cannot/i.test(err.message);
@@ -598,7 +709,7 @@ async function submitPod() {
       },
     );
     closePodModal();
-    await Promise.all([loadJobs(), loadEarnings()]);
+    await Promise.all([loadJobs(), loadEarnings(), loadWallet()]);
   } catch (err) {
     $("pod-error").textContent = err.message;
   } finally {
@@ -612,10 +723,12 @@ async function startApp() {
   showView("app");
   try {
     publicConfig = await api("/config");
+    if (publicConfig.phone_sign_in && window.NexoraPhoneAuth)
+      NexoraPhoneAuth.mountVerify($("phone-verify"), { request: postJson });
   } catch (error) {
     $("status-error").textContent = error.message;
   }
-  await Promise.all([loadJobs(), loadEarnings(), loadPayouts()]);
+  await Promise.all([loadJobs(), loadEarnings(), loadPayouts(), loadWallet()]);
   await nativeStatus();
   clearInterval(jobsTimer);
   jobsTimer = setInterval(() => {
@@ -654,6 +767,7 @@ window.addEventListener("pageshow", (event) => {
     /* fall through to login */
   }
   showView("login");
+  setupPhoneSignIn();
 })();
 
 window.addEventListener("nexora:reconnected", () => {

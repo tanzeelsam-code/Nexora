@@ -40,6 +40,7 @@ function registerAccount({
   authenticate,
   requireDatabase,
   onDeleted,
+  confirmByPhone = async () => false,
 }) {
   app.post(
     "/api/v1/account/delete",
@@ -49,10 +50,17 @@ function registerAccount({
     },
     async (req) => {
       const body = validate(
-        z.object({
-          password: z.string().min(1).max(72),
-          confirm: z.literal("DELETE"),
-        }),
+        z
+          .object({
+            password: z.string().min(1).max(72).optional(),
+            // Accounts created by phone have no password; they confirm with an SMS code instead.
+            phone_code: z.string().regex(/^\d{6}$/).optional(),
+            confirm: z.literal("DELETE"),
+          })
+          .refine(
+            (value) => Boolean(value.password) !== Boolean(value.phone_code),
+            "Confirm with either your password or a text message code.",
+          ),
         req.body,
       );
       if (!["customer", "driver"].includes(req.user.role))
@@ -66,10 +74,18 @@ function registerAccount({
         "SELECT id,password_hash FROM users WHERE id=$1 AND is_active",
         [req.user.id],
       );
-      if (
-        !candidate ||
-        !(await bcrypt.compare(body.password, candidate.password_hash))
-      )
+      if (!candidate)
+        throw unavailable(
+          "Confirm your current password to delete this account.",
+          403,
+        );
+      if (body.phone_code) {
+        if (!(await confirmByPhone(req.user.id, body.phone_code)))
+          throw unavailable(
+            "That code is not correct or has expired. Request a new code.",
+            403,
+          );
+      } else if (!(await bcrypt.compare(body.password, candidate.password_hash)))
         throw unavailable(
           "Confirm your current password to delete this account.",
           403,
@@ -125,6 +141,13 @@ function registerAccount({
           user.id,
         ]);
         await client.query("DELETE FROM merchant_profiles WHERE user_id=$1",[user.id]);
+        if ((await client.query("SELECT to_regclass('public.merchant_order_drafts') AS t")).rows[0].t)
+          await client.query("DELETE FROM merchant_order_drafts WHERE user_id=$1", [user.id]);
+        if ((await client.query("SELECT to_regclass('public.phone_verifications') AS t")).rows[0].t)
+          await client.query(
+            "DELETE FROM phone_verifications WHERE user_id=$1 OR phone=(SELECT phone FROM users WHERE id=$1)",
+            [user.id],
+          );
         await client.query("DELETE FROM area_waitlist WHERE email=(SELECT lower(email) FROM users WHERE id=$1)",[user.id]);
         await client.query("DELETE FROM notifications WHERE user_id=$1", [
           user.id,

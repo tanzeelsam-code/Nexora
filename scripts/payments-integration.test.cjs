@@ -141,7 +141,11 @@ test(
       },
     });
     await backend.initialize();
+    let testDriverId = null;
     t.after(async () => {
+      // A driver left online at the shared test location would compete with the next run.
+      if (testDriverId)
+        await db.query("UPDATE drivers SET is_online=FALSE,status='offline' WHERE id=$1", [testDriverId]);
       await backend.app.close();
       await redis.quit();
       await db.end();
@@ -193,6 +197,7 @@ test(
       "UPDATE drivers SET onboarding_completed=TRUE,stripe_account_id=$2 WHERE user_id=$1 RETURNING id",
       [driver.user.id, "acct_" + crypto.randomBytes(4).toString("hex")],
     );
+    testDriverId = d.id;
     await call(
       "POST",
       "/driver/location",

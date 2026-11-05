@@ -658,6 +658,9 @@
         "location-message",
         "New bookings are not available yet. You can still view your existing rides and receipts.",
       );
+    setupPhoneSignIn(config);
+    if (config.phone_sign_in && window.NexoraPhoneAuth)
+      NexoraPhoneAuth.mountVerify($("phone-verify"), { request });
     $("card-option").disabled = !config.card_payments;
     $("card-option").textContent = config.card_payments
       ? "Card"
@@ -686,6 +689,37 @@
       }
     }
   }
+  // Shared by email, registration and phone sign-in.
+  async function signedIn(data) {
+    if (data.user.role !== "customer") {
+      session.save(data);
+      session.logout();
+      throw new Error("Please use a customer account here.");
+    }
+    session.save(data);
+    if (new URLSearchParams(location.search).get("next") === "delivery") {
+      location.replace("/freight.html");
+      return;
+    }
+    await start();
+    const action = afterSignIn;
+    afterSignIn = null;
+    if (action) action();
+  }
+  function setupPhoneSignIn(value) {
+    const box = $("phone-auth");
+    if (!value?.phone_sign_in || !window.NexoraPhoneAuth || box.dataset.ready)
+      return;
+    box.dataset.ready = "true";
+    NexoraPhoneAuth.mount(box, {
+      request,
+      role: "customer",
+      country: value.country || "PK",
+      onSignedIn: signedIn,
+    });
+    box.hidden = false;
+    $("phone-divider").hidden = false;
+  }
   for (const formId of ["login", "registration"])
     $(formId).addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -699,21 +733,8 @@
           "/auth/" + (formId === "login" ? "login" : "register"),
           Object.fromEntries(new FormData(form)),
         );
-        if (data.user.role !== "customer") {
-          session.save(data);
-          session.logout();
-          throw new Error("Please use a customer account here.");
-        }
-        session.save(data);
-        form.reset();
-        if (new URLSearchParams(location.search).get("next") === "delivery") {
-          location.replace("/freight.html");
-          return;
-        }
-        await start();
-        const action = afterSignIn;
-        afterSignIn = null;
-        if (action) action();
+        if (data.user.role === "customer") form.reset();
+        await signedIn(data);
       } catch (err) {
         error(messageId, err);
       } finally {
@@ -770,6 +791,7 @@
       .then((value) => {
         config = value;
         $("estimate").disabled = !config.booking_available;
+        setupPhoneSignIn(config);
       })
       .catch(() => {
         config = {};

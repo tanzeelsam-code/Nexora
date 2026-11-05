@@ -22,6 +22,7 @@
     <script defer src="/ui.js"></script>
     <script defer src="/session.js"></script>
     <script defer src="/notifications.js"></script>
+    <script defer src="/phone-auth.js"></script>
     <script defer src="/customer.js"></script>
     <script defer src="/availability.js"></script>
     <script src="/network.js"></script>
@@ -62,6 +63,8 @@
           ×
         </button>
         <p class="auth-context">Your journey stays here while you sign in.</p>
+        <div id="phone-auth" hidden></div>
+        <p class="auth-divider" id="phone-divider" hidden>Or use your email</p>
         <form id="login" class="card">
           <h2>Welcome back</h2>
           <p>Sign in to find your next ride.</p>
@@ -144,6 +147,7 @@
           </div>
         </div>
         <p id="notification-message" role="status" class="muted"></p>
+        <div id="phone-verify" class="phone-verify-card" hidden></div>
         <ol class="booking-steps" id="ride-steps" aria-label="Booking progress">
           <li data-step="1" aria-current="step"><span>1</span> Your route</li>
           <li data-step="2"><span>2</span> Fare & payment</li>

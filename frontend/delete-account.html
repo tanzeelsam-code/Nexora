@@ -9,6 +9,7 @@
     <script src="/network.js"></script>
     <script defer src="/ui.js"></script>
     <script defer src="/session.js"></script>
+    <script defer src="/phone-auth.js"></script>
     <script defer src="/delete-account.js"></script>
   </head>
   <body>
@@ -49,6 +50,31 @@
           deletion”. Never send a password or PIN. Support will verify account
           ownership before acting.
         </p>
+      </section>
+      <section id="phone-delete" class="card" hidden>
+        <p>
+          Created your account with your phone number? Confirm with text
+          message codes instead of a password.
+        </p>
+        <div id="phone-auth"></div>
+        <form id="phone-delete-confirm" hidden>
+          <p>
+            For your security we sent a second code to confirm deletion.
+          </p>
+          <label
+            >6-digit code<input
+              name="code"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxlength="6"
+              required /></label
+          ><label class="checkbox-label"
+            ><input name="confirmed" type="checkbox" required /> I understand
+            deletion is permanent.</label
+          ><button type="submit">Delete my account permanently</button>
+          <p id="phone-delete-status" role="status" aria-live="polite"></p>
+        </form>
       </section>
       <form id="delete-account" class="card">
         <h2>Confirm your identity</h2>

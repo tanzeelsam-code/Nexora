@@ -54,6 +54,13 @@
             hashes.
           </li>
           <li>
+            <strong>Phone sign-in:</strong> when you sign in with your phone, your
+            number is sent to our text message provider to deliver a one-time
+            code. We keep the number, a keyed hash of the code, the request time
+            and your network address to prevent abuse. Codes expire after five
+            minutes.
+          </li>
+          <li>
             <strong>Journeys:</strong> pickup and destination addresses and
             coordinates, route details, fares, status updates, ratings and
             payment records.
@@ -61,12 +68,15 @@
           <li>
             <strong>Deliveries:</strong> package details, sender and recipient
             contact information, handoff PINs, recipient name, signature and
-            delivery timestamps.
+            delivery timestamps. Merchants can also import order lists with
+            recipient names, phone numbers and addresses; these stay with the
+            merchant's account until booked or discarded.
           </li>
           <li>
             <strong>Drivers:</strong> vehicle and onboarding details,
             availability, earnings and location updates while using the driver
-            service.
+            service, plus the commission owed on cash jobs and the payment
+            method, transaction IDs and amounts drivers submit when paying it.
           </li>
           <li>
             <strong>Support:</strong> request messages, journey references and
