@@ -28,7 +28,9 @@
     bookingComplete = false,
     afterSignIn;
   let merchantProfile = null;
-  let repeatLoaded = false;
+  let repeatLoaded = false,
+    prefillLoaded = false,
+    returnOf = null;
   const points = { pickup: null, dropoff: null },
     searchVersion = { pickup: 0, dropoff: 0 };
   const session = NexoraSession("nexora_customer", signedOut);
@@ -71,6 +73,7 @@
     $("history-section").hidden = true;
     $("open-signin").hidden = false;
     $("history").replaceChildren();
+    setReturnMode(null);
     $("delivery").reset();
     for (const id of [
       "booking-message",
@@ -238,6 +241,10 @@
         throw new Error("Enter an order reference for goods cash collection.");
       body.cargo_weight_kg = Number(body.cargo_weight_kg);
       body.is_fragile = $("delivery").elements.is_fragile.checked;
+      if (returnOf) {
+        body.return_of_delivery_id = returnOf;
+        body.cod_amount = 0;
+      }
       for (const kind of ["pickup", "dropoff"]) {
         body[kind + "_lat"] = points[kind].lat;
         body[kind + "_lng"] = points[kind].lng;
@@ -253,7 +260,11 @@
       $("quote-detail").textContent =
         `Quote valid until ${new Date(quote.expires_at).toLocaleTimeString()}. Recipient pays ${money(Number(price.total_fare) + body.cod_amount, price.currency)} in cash: delivery fee plus goods payment.`;
       const fields = [
-        ["Order reference", body.merchant_order_ref || "Personal delivery"],
+        [
+          "Order reference",
+          body.merchant_order_ref ||
+            (returnOf ? "Return pickup" : "Personal delivery"),
+        ],
         ["Goods cash to collect", money(body.cod_amount, price.currency)],
         ["Delivery fee", money(price.total_fare, price.currency)],
         [
@@ -390,6 +401,7 @@
   };
   $("new-delivery").onclick = () => {
     bookingComplete = false;
+    setReturnMode(null);
     $("delivery").reset();
     invalidate();
     for (const kind of ["pickup", "dropoff"]) {
@@ -524,12 +536,113 @@
         $("delivery-error").textContent =
           "Previous details loaded. Check the contacts and goods amount, and enter a new order reference.";
       }
+      await loadPrefill(current);
     } catch (error) {
+      const params = new URLSearchParams(location.search);
       if (
         current === version &&
-        new URLSearchParams(location.search).has("repeat")
+        ["repeat", "draft", "return"].some((key) => params.has(key))
       )
         $("delivery-error").textContent = error.message;
+    }
+  }
+  function setReturnMode(id) {
+    returnOf = id;
+    const cod = $("delivery").elements.cod_amount;
+    cod.disabled = !!id;
+    if (id) cod.value = 0;
+  }
+  function fillContacts(kind, name, phone) {
+    $("delivery").elements[kind + "_contact_name"].value = name || "";
+    $("delivery").elements[kind + "_contact_phone"].value = phone || "";
+  }
+  function useMerchantPickup() {
+    if (!merchantProfile?.pickup_address) return false;
+    points.pickup = {
+      address: merchantProfile.pickup_address,
+      lat: Number(merchantProfile.pickup_lat),
+      lng: Number(merchantProfile.pickup_lng),
+    };
+    $("pickup-address").value = points.pickup.address;
+    fillContacts(
+      "pickup",
+      merchantProfile.pickup_contact_name,
+      merchantProfile.pickup_contact_phone,
+    );
+    return true;
+  }
+  // Imported orders (?draft=) and return pickups (?return=) open the normal booking steps prefilled.
+  async function loadPrefill(current) {
+    const params = new URLSearchParams(location.search);
+    const draftId = params.get("draft"),
+      returnId = params.get("return");
+    if (prefillLoaded) return;
+    if (draftId && /^[a-f0-9-]{36}$/i.test(draftId)) {
+      prefillLoaded = true;
+      const { draft: order } = await request("/merchant/drafts/" + draftId);
+      if (current !== version) return;
+      if (order.delivery_id) {
+        $("delivery-error").textContent =
+          `Order ${order.order_ref} is already booked as ${order.delivery_number}.`;
+        return;
+      }
+      const hasPickup = useMerchantPickup();
+      fillContacts("dropoff", order.recipient_name, order.recipient_phone);
+      const form = $("delivery").elements;
+      form.cargo_description.value = order.cargo_description;
+      form.cargo_weight_kg.value = Number(order.cargo_weight_kg);
+      form.cod_amount.value = Number(order.cod_amount);
+      form.merchant_order_ref.value = order.order_ref;
+      form.is_fragile.checked = !!order.is_fragile;
+      $("business-delivery-fields").open = true;
+      $("dropoff-address").value = order.address;
+      if (order.lat !== null && order.lng !== null)
+        points.dropoff = {
+          address: order.address,
+          lat: Number(order.lat),
+          lng: Number(order.lng),
+        };
+      invalidate();
+      summary();
+      $("delivery-error").textContent =
+        `Imported order ${order.order_ref} loaded. ` +
+        (points.dropoff
+          ? "Check the location, then continue."
+          : "Choose the recipient's address from the search results, then continue.") +
+        (hasPickup ? "" : " Choose your pickup address too.");
+      if (!points.dropoff) $("search-dropoff").click();
+    } else if (returnId && /^[a-f0-9-]{36}$/i.test(returnId)) {
+      prefillLoaded = true;
+      const { delivery: d } = await request("/deliveries/" + returnId);
+      if (current !== version) return;
+      if (d.status !== "delivered") {
+        $("delivery-error").textContent =
+          "Returns can be booked only for delivered parcels.";
+        return;
+      }
+      // The parcel travels back: the original destination becomes the pickup.
+      const swap = { pickup: "dropoff", dropoff: "pickup" };
+      for (const kind of ["pickup", "dropoff"]) {
+        const from = swap[kind];
+        points[kind] = {
+          address: d[from + "_address"],
+          lat: Number(d[from + "_lat"]),
+          lng: Number(d[from + "_lng"]),
+        };
+        $(kind + "-address").value = points[kind].address;
+        fillContacts(kind, d[from + "_contact_name"], d[from + "_contact_phone"]);
+      }
+      const form = $("delivery").elements;
+      form.cargo_description.value = ("Return: " + d.cargo_description).slice(0, 500);
+      form.cargo_weight_kg.value = Number(d.cargo_weight_kg);
+      form.is_fragile.checked = !!d.is_fragile;
+      form.merchant_order_ref.value = "";
+      setReturnMode(returnId);
+      $("business-delivery-fields").open = true;
+      invalidate();
+      summary();
+      $("delivery-error").textContent =
+        `Return pickup for ${d.merchant_order_ref || d.delivery_number}: from the recipient back to you. No goods payment is collected; the return fee is paid in cash when the parcel reaches you.`;
     }
   }
   $("use-merchant-pickup").onclick = () => {

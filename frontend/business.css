@@ -234,3 +234,12 @@
 .wallet-workspace h3 {
   margin: 18px 0 10px;
 }
+.import-problems {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+.import-problems li {
+  margin: 6px 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}

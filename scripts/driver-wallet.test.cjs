@@ -44,6 +44,7 @@ test(
       "20261105154028_area_availability_merchant_cod.sql",
       "20261105190000_phone_sign_in.sql",
       "20261105200000_driver_cash_wallet.sql",
+      "20261105210000_merchant_imports_returns.sql",
     ])
       await db.query(fs.readFileSync("supabase/migrations/" + file, "utf8"));
     const backend = createBackend({

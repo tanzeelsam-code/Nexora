@@ -63,12 +63,13 @@ test(
       port: Number(process.env.TEST_REDIS_PORT || 56389),
       password: process.env.TEST_REDIS_PASSWORD || "nexora_isolated_test",
     });
-    await db.query(
-      fs.readFileSync(
-        "supabase/migrations/20261105154028_area_availability_merchant_cod.sql",
-        "utf8",
-      ),
-    );
+    // Completing a cash delivery also writes the driver wallet ledger.
+    for (const file of [
+      "20261105154028_area_availability_merchant_cod.sql",
+      "20261105200000_driver_cash_wallet.sql",
+      "20261105210000_merchant_imports_returns.sql",
+    ])
+      await db.query(fs.readFileSync("supabase/migrations/" + file, "utf8"));
     const backend = createBackend({
       edge: true,
       db,

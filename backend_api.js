@@ -35,6 +35,7 @@ const { registerMerchants, moneySchema } = require('./services/merchants.cjs');
 const { createSms } = require('./services/sms.cjs');
 const { registerPhoneAuth } = require('./services/phone-auth.cjs');
 const { registerDriverWallet } = require('./services/driver-wallet.cjs');
+const { registerMerchantTools } = require('./services/merchant-tools.cjs');
 
 // ============================================================
 // CONFIGURATION
@@ -923,6 +924,7 @@ const schemas = {
   requestDelivery: z.object({
     merchant_order_ref: z.string().trim().min(1).max(80).optional(),
     cod_amount: moneySchema.default(0),
+    return_of_delivery_id: z.string().uuid().optional(),
     pickup_lat: z.number().min(-90).max(90),
     pickup_lng: z.number().min(-180).max(180),
     pickup_address: z.string().min(1).max(500),
@@ -1999,6 +2001,7 @@ app.post('/api/v1/deliveries/estimate', { preHandler: [authenticate, requireRole
   const body = validate(schemas.requestDelivery, req.body);
   await areas.assertRoute(body, 'delivery');
   await merchants.requireMerchant(req.user.id,body);
+  await merchantTools.assertReturn(req.user.id, body);
   validateDeliveryAvailability(body);
   const pricing = await deliveryPrice(body);
   const quote_token = app.jwt.sign({ type: 'delivery_quote', fingerprint: deliveryFingerprint(body), pricing }, { expiresIn: '5m' });
@@ -2037,6 +2040,7 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
   if (existing) return reply.code(201).send(deliveryCreatedResponse(existing));
   await areas.assertRoute(body, 'delivery');
   await merchants.requireMerchant(req.user.id,body);
+  await merchantTools.assertReturn(req.user.id, body);
   market.requireRates();
   validateDeliveryAvailability(body);
   const deliveryId = uuidv4();
@@ -2065,6 +2069,7 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
     const {rows:[account]} = await client.query('SELECT is_active FROM users WHERE id=$1 FOR UPDATE',[req.user.id]);
     if (!account?.is_active) throw unavailable('This account is no longer active.',401);
     await merchants.requireMerchant(req.user.id,body,client.query.bind(client));
+    await merchantTools.assertReturn(req.user.id, body, client.query.bind(client));
     const {rows:[created]} = await client.query(`
     INSERT INTO deliveries (
       id, delivery_number, customer_id,
@@ -2076,10 +2081,11 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
       cargo_value, is_fragile, requires_refrigeration, temp_min_celsius, temp_max_celsius,
       insurance_requested, insurance_premium,
       base_fare, distance_fare, cold_chain_surcharge,
-      total_fare, currency, status, payment_method, request_key, request_fingerprint, merchant_order_ref, cod_amount
+      total_fare, currency, status, payment_method, request_key, request_fingerprint, merchant_order_ref, cod_amount,
+      return_of_delivery_id
     ) VALUES (
       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-      $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41
+      $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42
     )
     RETURNING *
   `, [
@@ -2092,7 +2098,8 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
     body.cargo_value ?? null, body.is_fragile, body.requires_refrigeration, body.temp_min_celsius ?? null, body.temp_max_celsius ?? null,
     body.insurance_requested, insurancePremium,
     pricing.breakdown?.base_fare ?? null, pricing.breakdown?.distance_fare ?? null, pricing.breakdown?.cold_chain_surcharge ?? null,
-    totalFare, pricing.currency || 'USD', 'pending', 'cash', requestKey, fingerprint, body.merchant_order_ref || null, body.cod_amount
+    totalFare, pricing.currency || 'USD', 'pending', 'cash', requestKey, fingerprint, body.merchant_order_ref || null, body.cod_amount,
+    body.return_of_delivery_id || null
   ]);
     return created;
   });
@@ -2101,6 +2108,7 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
       const saved = await replayExisting();
       if (saved) return reply.code(201).send(deliveryCreatedResponse(saved));
       if(error.constraint==='deliveries_merchant_order_unique') throw unavailable('This order reference already has a delivery. Find it in your merchant desk.',409);
+      if(error.constraint==='deliveries_one_return') throw unavailable('A return is already booked for this delivery.',409);
     }
     throw error;
   }
@@ -3159,6 +3167,7 @@ registerSupport({app,query,validate,authenticate,requireDatabase,requireRole,aud
 const areas=registerAreas({app,query,validate,authenticate,requireDatabase,requireRole,auditLog,
   ready:()=>market.ready && (!isProduction || maps.enabled),timezone:market.timezone,required:areasRequired});
 const merchants=registerMerchants({app,query,transaction,validate,authenticate,requireDatabase,requireRole,market});
+const merchantTools = registerMerchantTools({ app, query, transaction, validate, authenticate, requireDatabase, requireRole, market });
 const wallet = registerDriverWallet({ app, query, transaction, validate, authenticate, requireDatabase, requireRole, requireDriver, auditLog, market, env: environment });
 const sms = createSms(environment, { fetch: runtime.fetch || globalThis.fetch, logger, isProduction });
 const phoneAuth = registerPhoneAuth({ app, query, transaction, validate, authenticate, requireDatabase, issueAuthTokens, bcrypt, sms, kv,
@@ -3420,7 +3429,7 @@ async function start() {
       dbConnected = true;
       logger.info('✅ Database connected');
       await ensureOperationalTables();
-      for (const migration of ['20261019085513_booking_payments_notifications.sql','20261024093153_release_recovery_cash_billing.sql','20261024093804_durable_delivery_requests.sql','20261105154028_area_availability_merchant_cod.sql','20261105190000_phone_sign_in.sql','20261105200000_driver_cash_wallet.sql']) {
+      for (const migration of ['20261019085513_booking_payments_notifications.sql','20261024093153_release_recovery_cash_billing.sql','20261024093804_durable_delivery_requests.sql','20261105154028_area_availability_merchant_cod.sql','20261105190000_phone_sign_in.sql','20261105200000_driver_cash_wallet.sql','20261105210000_merchant_imports_returns.sql']) {
         await db.query(fs.readFileSync(path.join(__dirname,'supabase/migrations',migration),'utf8'));
       }
       logger.info('✅ Operational tables ensured');

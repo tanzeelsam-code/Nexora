@@ -16,7 +16,7 @@
     "test": "node scripts/e2e.js",
     "test:workspace": "node --test scripts/workspace-session.test.cjs",
     "test:e2e": "node scripts/e2e.js",
-    "test:integrations": "node --test scripts/integrations.test.cjs scripts/customer-session.test.cjs scripts/payments-integration.test.cjs scripts/release-integration.test.cjs scripts/launch-integration.test.cjs scripts/business.test.cjs scripts/phone-auth.test.cjs scripts/driver-wallet.test.cjs",
+    "test:integrations": "node --test scripts/integrations.test.cjs scripts/customer-session.test.cjs scripts/payments-integration.test.cjs scripts/release-integration.test.cjs scripts/launch-integration.test.cjs scripts/business.test.cjs scripts/phone-auth.test.cjs scripts/driver-wallet.test.cjs scripts/merchant-tools.test.cjs",
     "test:ai": "python3 -m unittest discover -s scripts -p \"test_ai_baseline.py\"",
     "test:ui": "node --test scripts/booking-ui.test.cjs",
     "test:launch": "node --test scripts/market.test.cjs scripts/connectivity.test.cjs scripts/native-driver.test.cjs",

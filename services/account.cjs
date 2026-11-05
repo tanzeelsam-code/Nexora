@@ -141,6 +141,8 @@ function registerAccount({
           user.id,
         ]);
         await client.query("DELETE FROM merchant_profiles WHERE user_id=$1",[user.id]);
+        if ((await client.query("SELECT to_regclass('public.merchant_order_drafts') AS t")).rows[0].t)
+          await client.query("DELETE FROM merchant_order_drafts WHERE user_id=$1", [user.id]);
         if ((await client.query("SELECT to_regclass('public.phone_verifications') AS t")).rows[0].t)
           await client.query(
             "DELETE FROM phone_verifications WHERE user_id=$1 OR phone=(SELECT phone FROM users WHERE id=$1)",
