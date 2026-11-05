@@ -1,0 +1,68 @@
+{
+  "status": "engineering_inventory_for_owner_review_not_a_submitted_declaration",
+  "data_sources_to_include": [
+    "Native Android driver service",
+    "Hosted WebView frontend",
+    "Backend and configured service providers"
+  ],
+  "collected_categories_to_review": {
+    "personal_info": [
+      "Name",
+      "Email address",
+      "Phone number",
+      "User/account identifiers",
+      "Pickup/drop-off addresses",
+      "Driver/vehicle registration information"
+    ],
+    "location": [
+      "Approximate and precise location when selected",
+      "Driver locations during an online shift"
+    ],
+    "financial_info": [
+      "Ride/delivery transaction amounts, receipts and cash collection status; cards disabled for current launch"
+    ],
+    "messages": [
+      "Support requests and staff responses",
+      "Customer booking notes"
+    ],
+    "photos_and_other_content": [
+      "Delivery recipient signature and proof fields, when supplied"
+    ],
+    "app_activity": [
+      "Bookings, job state changes, ratings and driver status"
+    ],
+    "diagnostics_and_identifiers": [
+      "Server request/security logs and IP addresses",
+      "Optional web push subscription identifiers"
+    ]
+  },
+  "processing_purposes": [
+    "App functionality",
+    "Account management",
+    "Fraud prevention, security and compliance",
+    "Customer support"
+  ],
+  "third_party_processing_to_review": [
+    "Cloudflare hosting",
+    "Supabase/Postgres storage",
+    "Mapbox geocoding and directions",
+    "OpenStreetMap map tiles",
+    "Configured browser push provider if enabled"
+  ],
+  "encryption_in_transit": "HTTPS required by release Android app; verify all deployed services and providers",
+  "account_deletion": "In-app and external web flow plus verified email request; active jobs/settlements require resolution; limited transaction/security records retained",
+  "foreground_service": {
+    "type": "location",
+    "start": "Driver explicitly chooses Go online with location permission from visible driver screen",
+    "purpose": "Keep assigned-job updates and fresh driver location available while driver switches to navigation or locks the screen",
+    "visible_control": "Ongoing shift notification opens driver screen; offline/sign-out stops service",
+    "restart": "No boot receiver; no automatic restart after process termination",
+    "video_required": true
+  },
+  "owner_decisions_required": [
+    "Retention periods and legal basis",
+    "Whether each transfer qualifies as collection/sharing under current Play definitions",
+    "Target age groups and content-rating answers",
+    "Actual provider contracts and production configuration"
+  ]
+}

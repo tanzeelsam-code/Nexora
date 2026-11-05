@@ -35,7 +35,10 @@
   "vars": {
     "PUBLIC_APP_URL": "https://nexora-ride-logistic.tanzeelsam.workers.dev",
     "ALLOWED_ORIGINS": "https://nexora-ride-logistic.tanzeelsam.workers.dev,https://nexus-ride-logistic.tanzeelsam.workers.dev",
-    "LOG_LEVEL": "warn"
+    "LOG_LEVEL": "warn",
+    "SERVICE_COUNTRY": "PK",
+    "CURRENCY": "PKR",
+    "SUPPORT_EMAIL": "tanzeelsam@gmail.com"
   },
   "hyperdrive": [
     {

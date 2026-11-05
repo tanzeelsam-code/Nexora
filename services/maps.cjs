@@ -39,6 +39,7 @@ function haversineKm(a, b, c, d) {
 
 function createMaps({
   token,
+  country = "",
   allowApproximate = false,
   fetch: request = globalThis.fetch,
 }) {
@@ -67,7 +68,8 @@ function createMaps({
       .filter(
         (f) =>
           Array.isArray(f.geometry?.coordinates) &&
-          f.geometry.coordinates.every(Number.isFinite),
+          f.geometry.coordinates.every(Number.isFinite) &&
+          (!country || String(f.properties?.context?.country?.country_code || f.properties?.country_code || '').toUpperCase()===country.toUpperCase()),
       )
       .map((f) => ({
         id: f.id,
@@ -89,6 +91,7 @@ function createMaps({
           q,
           limit: "5",
           autocomplete: "false",
+          ...(country ? {country:country.toLowerCase()} : {}),
           permanent: "true",
         }),
       );
@@ -122,6 +125,13 @@ function createMaps({
           source: "approximate",
           traffic: false,
         };
+      }
+      if(country) {
+        const countries=await Promise.all([[body.pickup_lat,body.pickup_lng],[body.dropoff_lat,body.dropoff_lng]].map(async([lat,lng])=>{
+          const data=await get('/search/geocode/v6/reverse',{latitude:String(lat),longitude:String(lng),types:'country',permanent:'true'});
+          return data.features?.some(f=>String(f.properties?.context?.country?.country_code || f.properties?.country_code || '').toUpperCase()===country.toUpperCase());
+        }));
+        if(countries.some(inside=>!inside)) throw unavailable('Both pickup and destination must be in the supported country. Choose a location in Pakistan.',422);
       }
       const coords = `${body.pickup_lng},${body.pickup_lat};${body.dropoff_lng},${body.dropoff_lat}`;
       const data = await get(

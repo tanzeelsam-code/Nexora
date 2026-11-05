@@ -65,3 +65,8 @@ android/local.properties
 *.keystore
 
 .dev.vars*
+
+# Android upload signing material
+*.jks
+*.p12
+android/signing.properties

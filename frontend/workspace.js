@@ -82,15 +82,18 @@
   async function api(path, body, retry = true) {
     const generation = sessionGeneration;
     const token = get("token");
-    const response = await fetch("/api/v1" + path, {
-      method: body === undefined ? "GET" : "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: "Bearer " + token } : {}),
+    const response = await (window.NexoraNetwork?.request || fetch)(
+      "/api/v1" + path,
+      {
+        method: body === undefined ? "GET" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: "Bearer " + token } : {}),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(20000),
       },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(20000),
-    });
+    );
     const data = await response
       .json()
       .catch(() => ({ error: "The service returned an unexpected response." }));
@@ -151,6 +154,7 @@
       error.status = response.status;
       throw error;
     }
+    if (data.currency) marketCurrency = data.currency;
     return data;
   }
   function revoke(token, refreshToken) {
@@ -199,7 +203,7 @@
     const nav = (href, name, glyph, id, external = false) =>
       `<a class="nav-link" href="${href}" ${active === id ? 'aria-current="page"' : ""} data-nav="${id}">${icon(glyph)}${name}${external ? icon("external").replace('class="icon"', 'class="icon arrow"') : ""}</a>`;
     $("sidebar").innerHTML =
-      `<a class="brand" href="/" aria-label="Nexora home"><span class="brand-mark">n</span><span>nexora<small>Workspace</small></span></a><nav aria-label="Workspace navigation"><div class="nav-group"><p class="eyebrow">Workspace</p>${nav("ops.html", "Overview", "grid", "overview")}${nav("admin.html", "Driver approvals", "users", "admin")}${nav("ops.html#fleet", "Fleet", "car", "fleet")}${nav("ops.html#alerts", "Alerts", "bell", "alerts")}</div><div class="nav-group"><p class="eyebrow">Portals</p>${nav("ride.html", "Ride dispatch", "car", "ride", true)}${nav("freight.html", "Freight logistics", "box", "freight", true)}${nav("track.html", "Live tracking", "pin", "track", true)}</div></nav><div class="sidebar-bottom"><div class="user-menu"><span class="avatar">${esc(initials(get("name")))}</span><div class="user-copy"><strong>${esc(get("name") || "Operations account")}</strong><small>Operations workspace</small></div></div><button class="sidebar-signout" id="signout" data-signout>${icon("logout")} Sign out</button></div>`;
+      `<a class="brand" href="/" aria-label="Nexora home"><span class="brand-mark">n</span><span>nexora<small>Workspace</small></span></a><nav aria-label="Workspace navigation"><div class="nav-group"><p class="eyebrow">Workspace</p>${nav("ops.html", "Overview", "grid", "overview")}${nav("admin.html", "Driver approvals", "users", "admin")}${nav("ops.html#fleet", "Fleet", "car", "fleet")}${nav("ops.html#alerts", "Alerts", "bell", "alerts")}${nav("support-workspace.html", "Support inbox", "help", "support")}</div><div class="nav-group"><p class="eyebrow">Portals</p>${nav("ride.html", "Customer rides", "car", "ride", true)}${nav("freight.html", "Freight logistics", "box", "freight", true)}${nav("track.html", "Live tracking", "pin", "track", true)}</div></nav><div class="sidebar-bottom"><div class="user-menu"><span class="avatar">${esc(initials(get("name")))}</span><div class="user-copy"><strong>${esc(get("name") || "Operations account")}</strong><small>Operations workspace</small></div></div><button class="sidebar-signout" id="signout" data-signout>${icon("logout")} Sign out</button></div>`;
     document.querySelectorAll("[data-signout]").forEach((button) => {
       button.onclick = signOut;
     });
@@ -283,12 +287,13 @@
   }
   const number = (value) =>
     value == null ? "—" : Number(value).toLocaleString();
-  const money = (value) =>
+  let marketCurrency = "PKR";
+  const money = (value, currency = marketCurrency) =>
     value == null
       ? "—"
       : Number(value).toLocaleString("en-US", {
           style: "currency",
-          currency: "USD",
+          currency,
           maximumFractionDigits: 2,
         });
   const human = (value) => String(value || "").replaceAll("_", " ");

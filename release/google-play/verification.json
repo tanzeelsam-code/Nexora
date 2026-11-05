@@ -1,0 +1,54 @@
+{
+  "date": "2026-11-05",
+  "status": "release_candidate_business_configuration_and_device_acceptance_pending",
+  "automated_checks": {
+    "api_e2e": {
+      "passed": 111,
+      "failed": 0
+    },
+    "isolated_integrations": {
+      "passed": 15,
+      "failed": 0
+    },
+    "verify_node_tests": {
+      "passed": 53,
+      "failed": 0
+    },
+    "android_debug_and_release": {
+      "unit_tests_per_variant": 3,
+      "lint": "passed",
+      "build": "passed"
+    },
+    "python_baseline": {
+      "passed": 3,
+      "failed": 0
+    },
+    "npm_audit": "0 vulnerabilities",
+    "python_dependency_audit": "0 vulnerabilities",
+    "worker_build": "passed"
+  },
+  "browser_checks": [
+    "Customer sign-in and PKR quote using isolated maps and fares",
+    "320px customer and driver pages without horizontal overflow",
+    "Customer support request, operations reply and visible customer response",
+    "Operations approval requires identity, licence and vehicle review",
+    "Offline page reload retains route draft, shows connection warning and disables new bookings",
+    "Reconnection reload restores booking availability"
+  ],
+  "not_verified": [
+    "Physical Android location/notification permission flows and screen-lock continuity",
+    "Native driver service end-to-end on emulator: installation succeeded but emulator UI automation could not complete",
+    "Live production maps and real cash settlement",
+    "Weak-signal field pilot with reviewed drivers",
+    "Play Console creation, upload, declarations and review"
+  ],
+  "bundle": {
+    "path": "dist/nexora-logistics-release.aab",
+    "sha256": "a162b94535d583f123cfcf13885272873f7e7f7e20f109cc7015af1254842768",
+    "signature_verified": true,
+    "target_sdk": 36,
+    "test_ca_included": false,
+    "native_shared_libraries": 0
+  },
+  "signing": "New dedicated upload key stored outside Git; encrypted backup required. No passwords or signing keys in repository."
+}

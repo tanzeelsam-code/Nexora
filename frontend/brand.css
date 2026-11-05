@@ -204,3 +204,5 @@ svg.icon {
     transition: none !important;
   }
 }
+[hidden] { display: none !important; }
+.connection-notice { position: relative; z-index: 1100; padding: 12px 20px; background: #fff1cf; color: #5d3c08; font: 600 14px/1.5 system-ui, sans-serif; text-align: center; }

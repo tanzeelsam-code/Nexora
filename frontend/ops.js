@@ -110,7 +110,7 @@
       .slice(0, 6)
       .map(
         (t) =>
-          `<article class="activity-row"><div class="row-top"><strong>${esc(t.ref || t.id)}</strong><span class="badge">${esc(human(t.status))}</span></div><p class="route-line">${icon("pin")}${esc(t.from || "Pickup")} → ${esc(t.to || "Destination")}</p><p><small>${esc(t.driver || "Awaiting driver")} · ${esc(money(t.fare))}</small></p></article>`,
+          `<article class="activity-row"><div class="row-top"><strong>${esc(t.ref || t.id)}</strong><span class="badge">${esc(human(t.status))}</span></div><p class="route-line">${icon("pin")}${esc(t.from || "Pickup")} → ${esc(t.to || "Destination")}</p><p><small>${esc(t.driver || "Awaiting driver")} · ${esc(money(t.fare, t.currency))}</small></p></article>`,
       )
       .join(
         "",
@@ -391,7 +391,7 @@
         );
         dialog.querySelector("#action-result").innerHTML = temperature
           ? `<div class="result-box"><strong>Reading saved</strong><p>${esc(result.is_excursion ? "Temperature is outside the expected range. Review the cold-chain alert." : "The shipment reading has been updated.")}</p></div>`
-          : `<div class="result-box"><small>${data?.demo ? "Preview estimate" : "Estimated price"} · USD</small><strong>${esc(money(ride ? result.price_estimate?.total_fare : result.breakdown?.total_fare))}</strong><p>${ride ? "Customers can book through the customer portal." : esc(human(result.recommended_vehicle)) + " · " + esc(result.distance_km) + " km · " + esc(result.estimated_transit_hours) + " hours estimated transit"}</p></div>`;
+          : `<div class="result-box"><small>${data?.demo ? "Preview estimate" : "Estimated price"} · ${esc(result.currency || result.price_estimate?.currency || "PKR")}</small><strong>${esc(money(ride ? result.price_estimate?.total_fare : result.breakdown?.total_fare))}</strong><p>${ride ? "Customers can book through the customer portal." : esc(human(result.recommended_vehicle)) + " · " + esc(result.distance_km) + " km · " + esc(result.estimated_transit_hours) + " hours estimated transit"}</p></div>`;
         if (temperature) await refresh();
       } catch (error) {
         const el = dialog.querySelector("#action-error");

@@ -1,8 +1,11 @@
 {
   "service_areas": [
-    "Chitral"
+    "Pakistan"
   ],
-  "support_email": null,
+  "support_email": "tanzeelsam@gmail.com",
   "legal_business_name": null,
-  "updated": "2026-10-24"
+  "updated": "2026-11-05",
+  "country": "PK",
+  "currency": "PKR",
+  "coverage_note": "Rides and deliveries depend on approved drivers near your pickup and a supported road route. Coverage is not guaranteed in every locality."
 }

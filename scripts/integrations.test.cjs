@@ -5,6 +5,16 @@ const { validSubscription } = require("../services/notifications.cjs");
 const { createJobs } = require("../services/jobs.cjs");
 const webPush = require("web-push");
 
+test('Pakistan routes reject an endpoint outside the configured country before quoting a road route',async()=>{
+  let directions=0;
+  const maps=createMaps({token:'test',country:'PK',fetch:async url=>{
+    if(url.pathname.includes('/directions/')) directions++;
+    return {ok:true,json:async()=>({features:[{properties:{context:{country:{country_code:'AF'}}}}]})};
+  }});
+  await assert.rejects(maps.route({pickup_lat:35,pickup_lng:71,dropoff_lat:34,dropoff_lng:70}),{statusCode:422});
+  assert.equal(directions,0);
+});
+
 test("geocodes request permanent storage and preserve server-side credentials", async () => {
   let request;
   const maps = createMaps({

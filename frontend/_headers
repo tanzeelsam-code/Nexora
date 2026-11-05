@@ -8,3 +8,10 @@
   Cache-Control: no-store
 /account-recovery
   Cache-Control: no-store
+
+/delete-account.html
+  Cache-Control: no-store
+/delete-account
+  Cache-Control: no-store
+/sw.js
+  Cache-Control: no-cache

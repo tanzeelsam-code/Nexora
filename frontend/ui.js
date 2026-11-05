@@ -86,7 +86,7 @@
   document.querySelectorAll("[data-site-footer]").forEach((footer) => {
     footer.classList.add("site-footer");
     footer.innerHTML =
-      '<div><a class="footer-brand" href="/">nexora</a><p>A little closer. Every journey.</p></div><div class="footer-links"><a href="/help.html">Help & safety</a><a href="/help.html#coverage">Service areas</a><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a><a href="/driver.html">Driver sign in</a><a href="/admin.html">Team workspace</a></div>';
+      '<div><a class="footer-brand" href="/">nexora</a><p>A little closer. Every journey.</p></div><div class="footer-links"><a href="/help.html">Help & safety</a><a href="/support.html">Contact support</a><a href="/help.html#coverage">Service areas</a><a href="/privacy.html">Privacy</a><a href="/delete-account.html">Delete account</a><a href="/terms.html">Terms</a><a href="/driver.html">Driver sign in</a><a href="/admin.html">Team workspace</a></div>';
   });
   if (
     document.querySelector(

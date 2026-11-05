@@ -292,6 +292,7 @@
         "Idempotency-Key": pending.key,
       });
       session.set("pending_delivery", null);
+      window.NexoraNetwork?.clearDrafts();
       invalidate();
       go(1, false);
       $("booking-message").textContent =
@@ -321,7 +322,7 @@
     busy = true;
     const current = version;
     try {
-      const { deliveries } = await request("/deliveries");
+      const { deliveries, offline } = await request("/deliveries");
       if (current !== version) return;
       $("history-error").textContent = "";
       $("history").innerHTML = deliveries.length
@@ -343,6 +344,10 @@
             })
             .join("")
         : '<div class="empty-history"><h3>Your first delivery starts here.</h3><p>Once you book, tracking updates and receipts will appear in this space.</p></div>';
+      if (offline)
+        $("history")
+          .querySelectorAll("[data-cancel]")
+          .forEach((button) => (button.disabled = true));
     } catch (error) {
       if (current === version) $("history-error").textContent = error.message;
     } finally {
@@ -435,6 +440,10 @@
   new MutationObserver(dock).observe($("auth"), {
     attributes: true,
     attributeFilter: ["open"],
+  });
+  window.addEventListener("nexora:reconnected", () => {
+    if (session.get("token")) start();
+    else loadConfig();
   });
   const saved = NexoraUI.drafts.take("delivery");
   if (saved) {

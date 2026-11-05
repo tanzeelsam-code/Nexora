@@ -9,8 +9,10 @@
     <link rel="stylesheet" href="/driver.css" />
     <script src="/ui.js" defer></script>
     <script src="/driver.js" defer></script>
+    <script src="/native-driver.js"></script>
     <script src="/session.js"></script>
     <script src="/notifications.js"></script>
+    <script src="/network.js"></script>
   </head>
   <body>
     <header class="driver-brand">
@@ -95,6 +97,14 @@
           id="status-error"
           style="text-align: center"
         ></div>
+
+        <p class="notice" id="driver-continuity">
+          Keep Nexora open while online or completing a job. This browser needs
+          the page open for location and job updates. If the signal drops, saved
+          details remain available; reconnect before confirming a pickup,
+          payment or delivery.
+        </p>
+        <p id="native-driver-status" class="notice" role="status" hidden></p>
 
         <!-- Earnings -->
         <div class="earnings-card">

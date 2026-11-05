@@ -27,6 +27,9 @@ const { createJobs } = require('./services/jobs.cjs');
 const { createPayments } = require('./services/payments.cjs');
 const { createNotifications } = require('./services/notifications.cjs');
 const { registerRecovery } = require('./services/recovery.cjs');
+const { createMarket } = require('./services/market.cjs');
+const { registerAccount } = require('./services/account.cjs');
+const { registerSupport } = require('./services/support.cjs');
 
 // ============================================================
 // CONFIGURATION
@@ -36,6 +39,7 @@ function createBackend(runtime = {}) {
 const bcrypt = runtime.passwords || defaultPasswords;
 const environment = runtime.env || process.env;
 const isProduction = environment.NODE_ENV === 'production';
+const market = createMarket(environment);
 
 function getEnv(name, fallback) {
   const value = environment[name];
@@ -763,7 +767,7 @@ app.addHook('onResponse', (req, reply, done) => {
 // ============================================================
 
 const stripe = runtime.stripe || Stripe(config.stripe.secretKey, { timeout:8000, maxNetworkRetries:0, ...(runtime.edge ? { httpClient: Stripe.createFetchHttpClient() } : {}) });
-const maps = createMaps({ token: config.maps.apiKey, allowApproximate: !isProduction && !config.maps.apiKey, fetch: runtime.fetch });
+const maps = createMaps({ token: config.maps.apiKey, country: market.country, allowApproximate: !isProduction && !config.maps.apiKey, fetch: runtime.fetch });
 const jobs = createJobs(query);
 const cardsEnabled = getEnv('CARD_PAYMENTS_ENABLED', 'false') === 'true' && !!getEnv('STRIPE_PUBLISHABLE_KEY', '') && !!config.stripe.webhookSecret;
 
@@ -787,9 +791,10 @@ const AI = {
     return data;
   },
   async price(payload) {
+    market.requireRates();
     // Published rates and provider road routes are deterministic and auditable.
     const route = await maps.route(payload);
-    return { ...localPrice({ ...payload, route }), route, pricing_source: 'published_rate_card' };
+    return { ...market.price({ ...payload, route }), route, pricing_source: 'published_rate_card' };
   },
   async checkFraud(payload) {
     const { data } = await axios.post(`${config.ai.baseUrl}/fraud/check`, payload, { timeout: 3000 });
@@ -832,36 +837,6 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 }
 
 const round2 = (n) => Number(Number(n).toFixed(2));
-
-function localPrice(p) {
-  // Straight-line distance understates road distance; 1.3 is a common urban detour factor.
-  const km = Math.max(0.5, p.route?.distance_km ?? haversineKm(p.pickup_lat, p.pickup_lng, p.dropoff_lat, p.dropoff_lng) * 1.3);
-  const minutes = p.route?.duration_minutes ?? (km / 30) * 60;
-  const freight = ['freight', 'courier', 'cold_chain'].includes(p.service_type);
-  let base = freight ? 5.0 : 2.5;
-  let distanceFare = km * (freight ? 2.0 : 1.2);
-  let timeFare = freight ? 0 : minutes * 0.25;
-  if (freight) distanceFare += (p.cargo_weight_kg || 0) * 0.05;
-  let total = base + distanceFare + timeFare;
-  const coldSurcharge = (p.service_type === 'cold_chain' || p.requires_refrigeration) ? total * 0.35 : 0;
-  total += coldSurcharge;
-  if (!freight) total = Math.max(total, 5.0);
-  total = round2(total);
-  return {
-    breakdown: {
-      base_fare: round2(base),
-      distance_fare: round2(distanceFare),
-      time_fare: round2(timeFare),
-      cold_chain_surcharge: round2(coldSurcharge),
-    },
-    surge_multiplier: 1.0,
-    surge_reason: null,
-    total_fare: total,
-    estimated_range: [round2(total * 0.9), round2(total * 1.1)],
-    currency: 'USD',
-    source: 'local_rate_card',
-  };
-}
 
 // ============================================================
 // VALIDATION SCHEMAS
@@ -1298,7 +1273,7 @@ app.post('/api/v1/auth/refresh', { config: { rateLimit: { max: 20, timeWindow: '
 //     -> driver_en_route -> arrived -> in_progress -> completed
 //   Any pre-pickup state can move to cancelled; an unassignable request ends as failed.
 
-const PLATFORM_FEE_RATE = 0.20;
+const PLATFORM_FEE_RATE = market.commission;
 const dispatchTimeoutMs = Number(getEnv('DISPATCH_TIMEOUT_SEC', config.app.dispatchTimeoutSec)) * 1000;
 const driverResponseTimeoutMs = Number(getEnv('DRIVER_RESPONSE_TIMEOUT_SEC', 20)) * 1000;
 const sweepIntervalMs = Number(getEnv('DISPATCH_SWEEP_MS', 3000));
@@ -1314,6 +1289,21 @@ function modeFromServiceTypes(serviceTypes = []) {
   const freight = serviceTypes.some((t) => SERVICE_BY_MODE.freight.includes(t));
   if (ride && freight) return 'both';
   return freight ? 'freight' : 'ride';
+}
+
+async function checkHandoffPin(key, supplied, expected) {
+  let attempts;
+  try {
+    if(redisConnected) {
+      attempts=await redis.incr('handoff:'+key);
+      if(Number(attempts)===1) await redis.expire('handoff:'+key,900);
+    } else if(!isProduction) attempts=await Cache.incr('handoff:'+key,900);
+    else throw new Error('Session store unavailable');
+  } catch { throw unavailable('PIN verification is temporarily unavailable. Reconnect and try again.'); }
+  if (Number(attempts)>5) throw unavailable('Too many PIN attempts. Wait 15 minutes or contact support.',429);
+  const valid = !!supplied && String(supplied) === String(expected || '').trim();
+  if (valid) await Cache.del('handoff:'+key);
+  return valid;
 }
 
 function randomDigits(n) {
@@ -1526,7 +1516,7 @@ async function driverTripAction(driver, tripId, action, body = {}) {
 
   if (action === 'start') {
     if (trip.status !== 'arrived') return bad();
-    if (!body.otp || String(body.otp) !== String(trip.pickup_otp).trim()) {
+    if (!await checkHandoffPin('trip:'+trip.id,body.otp,trip.pickup_otp)) {
       return { code: 403, body: { error: 'Invalid rider OTP' } };
     }
     await query("UPDATE trips SET status = 'in_progress', trip_started_at = NOW() WHERE id = $1 AND status = 'arrived'", [trip.id]);
@@ -1589,6 +1579,7 @@ app.post('/api/v1/trips/estimate', async (req, reply) => {
 
 // Create trip request
 app.post('/api/v1/trips', { preHandler: [authenticate, requireDatabase, idempotencyGuard] }, async (req, reply) => {
+  market.requireRates();
   const body = validate(schemas.requestRide, req.body);
   const customerId = req.user.id;
   const tripId = uuidv4();
@@ -1606,7 +1597,8 @@ app.post('/api/v1/trips', { preHandler: [authenticate, requireDatabase, idempote
 
   const trip = await transaction(async client => {
     // Serialize booking per customer to prevent two concurrent active rides.
-    await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [customerId]);
+    const { rows: [account] } = await client.query('SELECT id,is_active FROM users WHERE id=$1 FOR UPDATE', [customerId]);
+    if (!account?.is_active) throw unavailable('This account is no longer active.', 401);
     const { rows: open } = await client.query("SELECT id FROM trips WHERE customer_id=$1 AND status IN ('requested','searching','accepted','driver_en_route','arrived','in_progress') LIMIT 1", [customerId]);
     if (open.length) throw unavailable('You already have an active trip. Open your current ride.', 409);
     const { rows: [trip] } = await client.query(`
@@ -1899,7 +1891,7 @@ async function driverDeliveryAction(driver, deliveryId, action, body = {}) {
 
   if (action === 'pickup') {
     if (d.status !== 'pickup_scheduled') return bad();
-    if (!body.otp || String(body.otp) !== String(d.pickup_otp).trim()) return { code: 403, body: { error: 'Invalid pickup OTP' } };
+    if (!await checkHandoffPin('pickup:'+d.id,body.otp,d.pickup_otp)) return { code: 403, body: { error: 'Invalid pickup OTP' } };
     await query("UPDATE deliveries SET status = 'in_transit', picked_up_at = NOW() WHERE id = $1 AND status = 'pickup_scheduled'", [d.id]);
     await emitEvent(`user:${d.customer_id}`, 'delivery:picked_up', { delivery_id: d.id });
     return { code: 200, body: { message: 'Pickup confirmed', status: 'in_transit' } };
@@ -1907,7 +1899,7 @@ async function driverDeliveryAction(driver, deliveryId, action, body = {}) {
 
   if (action === 'deliver') {
     if (!['in_transit', 'out_for_delivery'].includes(d.status)) return bad();
-    if (!body.otp || String(body.otp) !== String(d.dropoff_otp).trim()) return { code: 403, body: { error: 'Invalid delivery OTP' } };
+    if (!await checkHandoffPin('delivery:'+d.id,body.otp,d.dropoff_otp)) return { code: 403, body: { error: 'Invalid delivery OTP' } };
     const fare = Number(d.total_fare);
     const platformFee = Number((fare * PLATFORM_FEE_RATE).toFixed(2));
     const driverEarnings = Number((fare - platformFee).toFixed(2));
@@ -2021,6 +2013,7 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
   }
   const existing = await replayExisting();
   if (existing) return reply.code(201).send(deliveryCreatedResponse(existing));
+  market.requireRates();
   validateDeliveryAvailability(body);
   const deliveryId = uuidv4();
   const deliveryNumber = `DEL-${Date.now()}-${randomDigits(3)}`;
@@ -2044,7 +2037,10 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
 
   let delivery;
   try {
-  ({ rows: [delivery] } = await query(`
+  delivery = await transaction(async client => {
+    const {rows:[account]} = await client.query('SELECT is_active FROM users WHERE id=$1 FOR UPDATE',[req.user.id]);
+    if (!account?.is_active) throw unavailable('This account is no longer active.',401);
+    const {rows:[created]} = await client.query(`
     INSERT INTO deliveries (
       id, delivery_number, customer_id,
       pickup_contact_name, pickup_contact_phone, pickup_lat, pickup_lng, pickup_address,
@@ -2072,7 +2068,9 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
     body.insurance_requested, insurancePremium,
     pricing.breakdown?.base_fare ?? null, pricing.breakdown?.distance_fare ?? null, pricing.breakdown?.cold_chain_surcharge ?? null,
     totalFare, pricing.currency || 'USD', 'pending', 'cash', requestKey, fingerprint
-  ]));
+  ]);
+    return created;
+  });
   } catch (error) {
     if (error.code === '23505') {
       const saved = await replayExisting();
@@ -2285,6 +2283,11 @@ function calculateDistanceKm(lat1, lon1, lat2, lon2) {
 // B2B Freight Instant Quote (Public / Corporate Portal)
 app.post('/api/v1/b2b/quote', async (req, reply) => {
   const body = validate(schemas.b2bQuote, req.body);
+  if (isProduction) {
+    if (body.insurance_requested) throw unavailable('Shipment insurance is not available. Contact support for special freight requirements.',400);
+    const price=await AI.price({...body,service_type:body.requires_refrigeration?'cold_chain':'freight'});
+    return {quote_id:'QTE-'+Date.now(),currency:price.currency,service_type:body.service_type,distance_km:price.route.distance_km,estimated_transit_hours:price.route.duration_minutes/60,recommended_vehicle:body.requires_refrigeration?'refrigerated':'van',breakdown:{...price.breakdown,total_fare:price.total_fare},service_note:'Estimate only. Driver availability and delivery times are confirmed during booking.'};
+  }
   const distanceKm = calculateDistanceKm(body.pickup_lat, body.pickup_lng, body.dropoff_lat, body.dropoff_lng);
 
   let baseFare = 5.00;
@@ -2341,7 +2344,7 @@ app.post('/api/v1/b2b/quote', async (req, reply) => {
       insurance_premium: Number(insurancePremium.toFixed(2)),
       total_fare: totalFare,
     },
-    sla_guarantee: 'On-time delivery SLA with automated GPS proof-of-delivery (OTP + signature)',
+    demo: true, currency:'USD', service_note:'Development estimate only; no delivery time or insurance coverage is guaranteed.',
     timestamp: new Date().toISOString()
   });
 });
@@ -2603,9 +2606,18 @@ app.post('/api/v1/driver/status', { preHandler: [authenticate, requireDatabase, 
 
 
 // Driver earnings summary
+// The native shift owns a separate refresh session, so it never races the WebView's refresh token.
+app.post('/api/v1/driver/mobile-session', {preHandler:[authenticate,requireDatabase,requireDriver],config:{rateLimit:{max:20,timeWindow:3600000}}}, async (req,reply) => {
+  if(!req.driver.onboarding_completed || req.driver.status==='suspended' || !req.driver.is_online)
+    return reply.code(403).send({error:'Go online with an approved driver account before enabling background updates.'});
+  const tokens=await issueAuthTokens(req.user);
+  return reply.send({token:tokens.token,refresh_token:tokens.refreshToken});
+});
+
 app.get('/api/v1/driver/earnings', { preHandler: [authenticate, requireDatabase, requireDriver] }, async (req, reply) => {
   const period = ['today', 'week', 'month'].includes(req.query.period) ? req.query.period : 'week';
   const interval = { today: '1 day', week: '7 days', month: '30 days' }[period];
+  const since = period === 'today' ? `date_trunc('day',NOW() AT TIME ZONE '${market.timezone}') AT TIME ZONE '${market.timezone}'` : 'NOW() - $2::interval';
 
   const { rows: [earnings] } = await query(`
     SELECT
@@ -2617,15 +2629,15 @@ app.get('/api/v1/driver/earnings', { preHandler: [authenticate, requireDatabase,
       COALESCE(SUM(EXTRACT(EPOCH FROM (trip_completed_at - trip_started_at))/3600) FILTER (WHERE status = 'completed'), 0) as total_hours
     FROM trips
     WHERE driver_id = $1
-    AND created_at > NOW() - $2::interval
-  `, [req.driver.id, interval]);
+    AND COALESCE(trip_completed_at,created_at) >= (${since}) AND currency=$3 AND $2::interval IS NOT NULL
+  `, [req.driver.id, interval, market.currency]);
 
   const { rows: [freight] } = await query(`
     SELECT COUNT(*) as completed_deliveries, COALESCE(SUM(driver_earnings), 0) as total_earnings
-    FROM deliveries WHERE driver_id = $1 AND status = 'delivered' AND delivered_at > NOW() - $2::interval
-  `, [req.driver.id, interval]);
+    FROM deliveries WHERE driver_id = $1 AND status = 'delivered' AND delivered_at >= (${since}) AND currency=$3 AND $2::interval IS NOT NULL
+  `, [req.driver.id, interval, market.currency]);
 
-  return reply.send({ period, earnings, freight });
+  return reply.send({ period, currency:market.currency, earnings, freight });
 });
 
 // Current job(s): lets mobile clients poll instead of relying on a socket for offers.
@@ -2674,13 +2686,13 @@ async function getFleetSnapshot() {
   if (!dbConnected) return { demo: true, drivers: inMemoryStore.drivers };
   const { rows } = await query(`
     SELECT d.id, u.first_name || ' ' || u.last_name AS name, d.status, d.is_online, d.service_types::text[] AS service_types,
-           d.rating_overall AS rating,
+           d.rating_overall AS rating, d.location_updated_at,
            ST_Y(d.current_location::geometry) AS lat, ST_X(d.current_location::geometry) AS lng,
            v.vehicle_type
     FROM drivers d
     JOIN users u ON u.id = d.user_id
     LEFT JOIN LATERAL (SELECT vehicle_type FROM vehicles WHERE driver_id = d.id AND is_active ORDER BY created_at LIMIT 1) v ON TRUE
-    WHERE d.onboarding_completed AND d.status <> 'suspended'
+    WHERE d.onboarding_completed AND d.status <> 'suspended' AND u.is_active
     ORDER BY d.is_online DESC, d.updated_at DESC
     LIMIT 500
   `);
@@ -2689,13 +2701,14 @@ async function getFleetSnapshot() {
     drivers: rows.map((r) => ({
       id: r.id,
       name: r.name,
-      lat: r.lat === null ? null : Number(r.lat),
-      lng: r.lng === null ? null : Number(r.lng),
+      lat: !r.location_updated_at || Date.now()-new Date(r.location_updated_at).getTime()>120000 || r.lat === null ? null : Number(r.lat),
+      lng: !r.location_updated_at || Date.now()-new Date(r.location_updated_at).getTime()>120000 || r.lng === null ? null : Number(r.lng),
+      location_updated_at:r.location_updated_at,
       mode: modeFromServiceTypes(r.service_types),
       vehicle_type: r.vehicle_type,
       service_types: r.service_types,
       status: r.status,
-      is_online: r.is_online,
+      is_online: r.is_online && !!r.location_updated_at && Date.now()-new Date(r.location_updated_at).getTime()<=120000,
       rating: Number(r.rating),
     })),
   };
@@ -2719,7 +2732,7 @@ app.get('/api/v1/fleet/drivers', { preHandler: opsGuard }, async (req, reply) =>
 
 // Diurnal Fleet Rebalance (Peak Rides vs Peak Freight balancer). Triggers an alert, so it is a POST.
 app.post('/api/v1/fleet/rebalance', { preHandler: opsGuard }, async (req, reply) => {
-  const currentHour = new Date().getHours();
+  const currentHour = Number(new Intl.DateTimeFormat('en-GB',{hour:'2-digit',hourCycle:'h23',timeZone:market.timezone}).format(new Date()));
   const isMiddayFreight = currentHour >= 10 && currentHour <= 16;
   const isCommuteRide = (currentHour >= 7 && currentHour <= 9) || (currentHour >= 17 && currentHour <= 20);
 
@@ -2870,7 +2883,7 @@ app.get('/api/v1/admin/dashboard', { preHandler: [authenticate, requireRole('adm
         COUNT(*) FILTER (WHERE status IN ('searching','accepted','driver_en_route','arrived','in_progress')) as active,
         AVG(customer_rating) FILTER (WHERE customer_rating IS NOT NULL) as avg_rating,
         AVG(eta_accuracy_seconds) as avg_eta_accuracy_sec
-      FROM trips WHERE DATE(created_at) = CURRENT_DATE
+      FROM trips WHERE (created_at AT TIME ZONE '${market.timezone}')::date = (NOW() AT TIME ZONE '${market.timezone}')::date
     `),
     query(`
       SELECT
@@ -2885,8 +2898,8 @@ app.get('/api/v1/admin/dashboard', { preHandler: [authenticate, requireRole('adm
       SELECT
         SUM(total_fare) FILTER (WHERE status = 'completed') as today_revenue,
         SUM(platform_fee) FILTER (WHERE status = 'completed') as today_profit
-      FROM trips WHERE DATE(created_at) = CURRENT_DATE
-    `),
+      FROM trips WHERE currency=$1 AND (created_at AT TIME ZONE '${market.timezone}')::date = (NOW() AT TIME ZONE '${market.timezone}')::date
+    `,[market.currency]),
     AI.forecastDemand([0, 1, 2, 3, 4]).catch(() => null)
   ]);
 
@@ -2894,6 +2907,7 @@ app.get('/api/v1/admin/dashboard', { preHandler: [authenticate, requireRole('adm
     trips: tripStats.rows[0],
     drivers: driverStats.rows[0],
     revenue: revenueStats.rows[0],
+    currency: market.currency,
     demand_forecast: demandForecast,
     timestamp: new Date().toISOString(),
   });
@@ -2904,19 +2918,21 @@ app.get('/api/v1/admin/drivers', { preHandler: [authenticate, requireRole('admin
   const pendingOnly = req.query.status === 'pending';
   const { rows } = await query(`
     SELECT d.id, d.driver_number, d.status, d.is_online, d.onboarding_completed, d.background_check_status,
-           d.service_types::text[] AS service_types, d.created_at, u.first_name, u.last_name, u.email, u.phone
+           d.service_types::text[] AS service_types, d.created_at, u.first_name, u.last_name, u.email, u.phone,
+           (SELECT COALESCE(json_agg(json_build_object('plate_number',v.plate_number,'make',v.make,'model',v.model,'year',v.year,'color',v.color,'vehicle_type',v.vehicle_type)), '[]'::json) FROM vehicles v WHERE v.driver_id=d.id AND v.is_active) AS vehicles
     FROM drivers d JOIN users u ON u.id = d.user_id
-    ${pendingOnly ? 'WHERE NOT d.onboarding_completed' : ''}
+    WHERE u.is_active AND u.deleted_at IS NULL ${pendingOnly ? 'AND NOT d.onboarding_completed' : ''}
     ORDER BY d.created_at DESC LIMIT 200
   `);
-  return reply.send({ drivers: rows, total: rows.length });
+  return reply.send({ drivers: rows, total: rows.length, can_suspend:req.user.role==='admin' });
 });
 
 app.post('/api/v1/admin/drivers/:id/approve', { preHandler: [authenticate, requireRole('admin', 'ops'), requireDatabase] }, async (req, reply) => {
+  validate(z.object({reviewed_identity:z.literal(true),reviewed_license:z.literal(true),reviewed_vehicle:z.literal(true)}),req.body);
   if (!UUID_RE.test(req.params.id)) return reply.code(404).send({ error: 'Driver not found' });
   const { rows: [driver] } = await query(`
-    UPDATE drivers SET onboarding_completed = TRUE, background_check_status = 'approved', background_check_date = CURRENT_DATE
-    WHERE id = $1 RETURNING id, driver_number, onboarding_completed
+    UPDATE drivers SET onboarding_completed = TRUE, background_check_status = 'operator_reviewed', background_check_date = CURRENT_DATE
+    WHERE id = $1 AND status <> 'suspended' AND user_id IN (SELECT id FROM users WHERE is_active) RETURNING id, driver_number, onboarding_completed
   `, [req.params.id]);
   if (!driver) return reply.code(404).send({ error: 'Driver not found' });
   await auditLog(req, 'driver.approve', 'driver', driver.id);
@@ -2953,7 +2969,7 @@ function diurnalState(hour) {
 // Unified operations overview for the dashboards. Real numbers when the database is connected;
 // otherwise clearly-flagged sample data (demo: true).
 app.get('/api/v1/ops/overview', { preHandler: opsGuard }, async (req, reply) => {
-  const currentHour = new Date().getHours();
+  const currentHour = Number(new Intl.DateTimeFormat('en-GB',{hour:'2-digit',hourCycle:'h23',timeZone:market.timezone}).format(new Date()));
 
   if (!dbConnected) {
     const drivers = inMemoryStore.drivers;
@@ -2994,18 +3010,18 @@ app.get('/api/v1/ops/overview', { preHandler: opsGuard }, async (req, reply) => 
       SELECT
         (SELECT COUNT(*) FROM trips WHERE status IN ('searching','accepted','driver_en_route','arrived','in_progress')) AS active_trips,
         (SELECT COUNT(*) FROM deliveries WHERE status IN ('pending','pickup_scheduled','in_transit','out_for_delivery')) AS active_deliveries,
-        (SELECT COUNT(*) FROM trips WHERE status = 'completed' AND trip_completed_at::date = CURRENT_DATE)
-          + (SELECT COUNT(*) FROM deliveries WHERE status = 'delivered' AND delivered_at::date = CURRENT_DATE) AS completed_today,
-        (SELECT COALESCE(SUM(total_fare), 0) FROM trips WHERE status = 'completed' AND trip_completed_at::date = CURRENT_DATE)
-          + (SELECT COALESCE(SUM(total_fare), 0) FROM deliveries WHERE status = 'delivered' AND delivered_at::date = CURRENT_DATE) AS today_revenue,
-        (SELECT COALESCE(SUM(platform_fee), 0) FROM trips WHERE status = 'completed' AND trip_completed_at::date = CURRENT_DATE)
-          + (SELECT COALESCE(SUM(platform_fee), 0) FROM deliveries WHERE status = 'delivered' AND delivered_at::date = CURRENT_DATE) AS today_profit,
-        (SELECT AVG(initial_eta_pickup_min) FROM trips WHERE created_at::date = CURRENT_DATE AND initial_eta_pickup_min IS NOT NULL) AS avg_eta,
+        (SELECT COUNT(*) FROM trips WHERE status = 'completed' AND (trip_completed_at AT TIME ZONE '${market.timezone}')::date = (NOW() AT TIME ZONE '${market.timezone}')::date)
+          + (SELECT COUNT(*) FROM deliveries WHERE status = 'delivered' AND (delivered_at AT TIME ZONE '${market.timezone}')::date = (NOW() AT TIME ZONE '${market.timezone}')::date) AS completed_today,
+        (SELECT COALESCE(SUM(total_fare), 0) FROM trips WHERE currency=$1 AND status = 'completed' AND (trip_completed_at AT TIME ZONE '${market.timezone}')::date = (NOW() AT TIME ZONE '${market.timezone}')::date)
+          + (SELECT COALESCE(SUM(total_fare), 0) FROM deliveries WHERE currency=$1 AND status = 'delivered' AND (delivered_at AT TIME ZONE '${market.timezone}')::date = (NOW() AT TIME ZONE '${market.timezone}')::date) AS today_revenue,
+        (SELECT COALESCE(SUM(platform_fee), 0) FROM trips WHERE currency=$1 AND status = 'completed' AND (trip_completed_at AT TIME ZONE '${market.timezone}')::date = (NOW() AT TIME ZONE '${market.timezone}')::date)
+          + (SELECT COALESCE(SUM(platform_fee), 0) FROM deliveries WHERE currency=$1 AND status = 'delivered' AND (delivered_at AT TIME ZONE '${market.timezone}')::date = (NOW() AT TIME ZONE '${market.timezone}')::date) AS today_profit,
+        (SELECT AVG(initial_eta_pickup_min) FROM trips WHERE (created_at AT TIME ZONE '${market.timezone}')::date = (NOW() AT TIME ZONE '${market.timezone}')::date AND initial_eta_pickup_min IS NOT NULL) AS avg_eta,
         (SELECT AVG(customer_rating) FROM trips WHERE customer_rating IS NOT NULL) AS avg_rating,
-        (SELECT AVG(dispatch_ai_score) * 100 FROM trips WHERE created_at::date = CURRENT_DATE AND dispatch_ai_score IS NOT NULL) AS ai_score
-    `),
+        (SELECT AVG(dispatch_ai_score) * 100 FROM trips WHERE (created_at AT TIME ZONE '${market.timezone}')::date = (NOW() AT TIME ZONE '${market.timezone}')::date AND dispatch_ai_score IS NOT NULL) AS ai_score
+    `,[market.currency]),
     query(`
-      SELECT t.id, t.trip_number AS ref, t.pickup_address AS "from", t.dropoff_address AS "to", t.status, t.total_fare AS fare, t.service_type AS type,
+      SELECT t.id, t.trip_number AS ref, t.pickup_address AS "from", t.dropoff_address AS "to", t.status, t.total_fare AS fare, t.currency, t.service_type AS type,
              du.first_name || ' ' || LEFT(du.last_name, 1) || '.' AS driver, t.initial_eta_pickup_min AS eta_min
       FROM trips t
       LEFT JOIN drivers dr ON dr.id = t.driver_id
@@ -3013,7 +3029,7 @@ app.get('/api/v1/ops/overview', { preHandler: opsGuard }, async (req, reply) => 
       WHERE t.status IN ('searching','accepted','driver_en_route','arrived','in_progress') ORDER BY t.created_at DESC LIMIT 25
     `),
     query(`
-      SELECT d.id, d.delivery_number AS ref, d.pickup_address AS "from", d.dropoff_address AS "to", d.status, d.total_fare AS fare,
+      SELECT d.id, d.delivery_number AS ref, d.pickup_address AS "from", d.dropoff_address AS "to", d.status, d.total_fare AS fare, d.currency,
              d.cargo_weight_kg AS weight, d.current_temp_celsius AS current_temp_c, d.requires_refrigeration,
              CASE WHEN d.requires_refrigeration THEN 'cold_chain' ELSE 'freight' END AS type,
              du.first_name || ' ' || LEFT(du.last_name, 1) || '.' AS driver
@@ -3039,6 +3055,7 @@ app.get('/api/v1/ops/overview', { preHandler: opsGuard }, async (req, reply) => 
     demo: false,
     status: 'ONLINE',
     version: '3.0.0',
+    currency:market.currency,
     platform: 'NEXORA LOGISTICS GROUP',
     metrics: {
       active_trips: Number(s.active_trips),
@@ -3108,6 +3125,25 @@ registerRecovery({ app, query, transaction, bcrypt, validate, requireDatabase, d
     if (!runtime.edge) io.in(`user:${userId}`).disconnectSockets(true);
   } });
 
+registerSupport({app,query,validate,authenticate,requireDatabase,requireRole,auditLog});
+registerAccount({ app,query,transaction,bcrypt,validate,authenticate,requireDatabase,
+  onDeleted:async userId => {
+    await Cache.del(`user:${userId}`);
+    // The deletion transaction is already committed. A stale derived view must
+    // not turn a completed deletion into an ambiguous HTTP failure.
+    await query('REFRESH MATERIALIZED VIEW active_drivers_view').catch(error => logger.error({err:error},'Driver view refresh after account deletion failed'));
+    if (!runtime.edge) {
+      io.in(`user:${userId}`).disconnectSockets(true);
+      if (redisConnected) {
+        let cursor='0';
+        do {
+          const result=await redis.scan(cursor,'MATCH',`idem:${userId}:*`,'COUNT',100);
+          cursor=result[0]; if(result[1].length) await redis.del(...result[1]);
+        } while(cursor!=='0');
+      } else for(const key of inMemoryStore.kv.keys()) if(key.startsWith(`idem:${userId}:`)) inMemoryStore.kv.delete(key);
+    }
+  } });
+
 const payments = createPayments({ app, query, transaction, stripe, jobs, enabled: cardsEnabled,
   publicKey: getEnv('STRIPE_PUBLISHABLE_KEY', ''), appUrl: getEnv('PUBLIC_APP_URL', '').replace(/\/$/, ''),
   connectCountry: getEnv('STRIPE_CONNECT_COUNTRY', ''), authenticate, requireDatabase, requireDriver, idempotencyGuard, readQuote });
@@ -3126,7 +3162,7 @@ async function processBackground(limit = 10) {
   }, limit);
   await payments.sweep(limit);
 }
-app.get('/api/v1/config', async () => ({ maps: maps.enabled, booking_available: !isProduction || maps.enabled, account_recovery: 'offline_code', card_payments: cardsEnabled,
+app.get('/api/v1/config', async () => ({ maps: maps.enabled, booking_available: market.ready && (!isProduction || maps.enabled), country:market.country, currency:market.currency, rates:market.rates || null, pricing_configured:market.ready, support_email:'tanzeelsam@gmail.com', account_recovery: 'offline_code', card_payments: cardsEnabled,
   stripe_publishable_key: cardsEnabled ? getEnv('STRIPE_PUBLISHABLE_KEY', '') : null,
   push_notifications: notifications.enabled, vapid_public_key: notifications.enabled ? getEnv('VAPID_PUBLIC_KEY', '') : null }));
 app.get('/api/v1/places/search', { preHandler: [authenticate], config: { rateLimit: { max: 20, timeWindow: 60000 } } }, async req => {

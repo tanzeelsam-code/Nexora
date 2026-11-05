@@ -221,7 +221,7 @@ async function run() {
   check('unapproved driver cannot go online (403)', r.status === 403 && r.body.code === 'pending_approval', r);
   r = await get('/admin/drivers?status=pending', { token: adminToken });
   check('admin sees the driver in the approval queue', r.status === 200 && r.body.drivers.some((d) => d.id === drvAId), r.body);
-  r = await post(`/admin/drivers/${drvAId}/approve`, {}, { token: adminToken });
+  r = await post(`/admin/drivers/${drvAId}/approve`, {reviewed_identity:true,reviewed_license:true,reviewed_vehicle:true}, { token: adminToken });
   check('admin approves the driver', r.status === 200, r);
   r = await post('/driver/status', { status: 'bogus' }, { token: drvAToken });
   check('invalid driver status is rejected (400)', r.status === 400, r);
@@ -309,7 +309,7 @@ async function run() {
   check('declined trip returns to searching with no driver', r.body.trip.status === 'searching' && r.body.trip.driver_id === null, r.body.trip);
 
   // Bring a second driver online; the declined driver must be excluded and driver B gets the offer.
-  await post(`/admin/drivers/${drvB.body.driver.id}/approve`, {}, { token: adminToken });
+  await post(`/admin/drivers/${drvB.body.driver.id}/approve`, {reviewed_identity:true,reviewed_license:true,reviewed_vehicle:true}, { token: adminToken });
   await post('/driver/status', { status: 'available' }, { token: drvB.body.token });
   await post('/driver/location', { lat: 40.7590, lng: -73.9860 }, { token: drvB.body.token });
   const reoffered = await waitFor(async () => {

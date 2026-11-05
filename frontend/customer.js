@@ -141,7 +141,7 @@
         "The map could not load. You can still search for your addresses.";
       return;
     }
-    map = L.map("journey-map").setView([25, 20], 2);
+    map = L.map("journey-map").setView([30.3753, 69.3451], 5);
     const tiles = L.tileLayer(
       "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
       {
@@ -477,6 +477,7 @@
           "Idempotency-Key": saved.key,
         });
         session.set("pending_booking", null);
+        window.NexoraNetwork?.clearDrafts();
         currentId = result.trip.id;
         session.set("trip", currentId);
         invalidateQuote();
@@ -502,7 +503,9 @@
     const id = currentId,
       version = tripVersion;
     try {
-      const { trip: t } = await request("/trips/" + encodeURIComponent(id));
+      const { trip: t, offline } = await request(
+        "/trips/" + encodeURIComponent(id),
+      );
       if (id !== currentId || version !== tripVersion) return;
       const active = activeStatuses.includes(t.status);
       mapPlaceholder(true);
@@ -511,11 +514,15 @@
       $("current").hidden = false;
       $("current").innerHTML =
         `<span class="trip-status">${esc(labels[t.status] || t.status)}</span><h2>${esc(t.pickup_address)} → ${esc(t.dropoff_address)}</h2><p>${esc(t.driver_name || "We are looking for a nearby driver.")} ${esc(t.plate_number || "")}</p>${["driver_en_route", "arrived", "accepted"].includes(t.status) ? `<p>Share this PIN only after checking your driver and vehicle.</p><div class="pin-code">${esc(t.pickup_otp)}</div>` : ""}<dl class="ride-details"><div><dt>Fare</dt><dd>${money(t.total_fare, t.currency)}</dd></div><div><dt>Payment</dt><dd>${t.payment_method === "cash" ? "Cash to driver" : esc(t.payment_status === "captured" ? "Paid" : t.payment_status === "failed" ? "Payment needs attention" : t.payment_status === "authorized" ? "Card authorized" : "Payment processing")}</dd></div></dl>${t.driver_phone && active ? `<p><a href="tel:${esc(t.driver_phone)}">Call your driver</a></p>` : ""}${active && t.status !== "in_progress" ? '<button id="cancel-ride" class="secondary">Cancel ride</button>' : ""}${t.status === "failed" ? "<p>No driver was available nearby. You can try again shortly. Any unused card hold will be released.</p>" : ""}${t.status === "completed" && !t.customer_rating ? '<h3>How was your journey?</h3><div class="rating-options">' + [1, 2, 3, 4, 5].map((n) => `<button data-rating="${n}" aria-label="Rate ${n} out of 5">${n} ★</button>`).join("") + "</div>" : ""}${!active ? '<button id="new-ride">Plan another ride →</button>' : ""}`;
+      if (offline)
+        $("current")
+          .querySelectorAll("#cancel-ride,[data-rating]")
+          .forEach((button) => (button.disabled = true));
       marker("pickup", { lat: t.pickup_lat, lng: t.pickup_lng });
       marker("dropoff", { lat: t.dropoff_lat, lng: t.dropoff_lng });
       marker(
         "driver",
-        t.driver_lat != null && t.driver_lng != null
+        !offline && t.driver_lat != null && t.driver_lng != null
           ? { lat: t.driver_lat, lng: t.driver_lng }
           : null,
       );
@@ -529,12 +536,14 @@
       }
       error(
         "map-caption",
-        active
-          ? t.driver_lat != null
-            ? "Driver location updated " +
-              new Date(t.driver_location_updated_at).toLocaleTimeString()
-            : "Waiting for a recent driver location."
-          : "Journey " + t.status + ".",
+        offline
+          ? "Saved journey details. Reconnect for the current driver location."
+          : active
+            ? t.driver_lat != null
+              ? "Driver location updated " +
+                new Date(t.driver_location_updated_at).toLocaleTimeString()
+              : "Waiting for a recent driver location."
+            : "Journey " + t.status + ".",
       );
       $("cancel-ride")?.addEventListener("click", () =>
         busy($("cancel-ride"), async () => {
@@ -638,7 +647,11 @@
     error("login-error", "");
     ensureMap();
     map?.invalidateSize();
-    config = await request("/config");
+    try {
+      config = await request("/config");
+    } catch {
+      config = { ...config, booking_available: false, card_payments: false };
+    }
     $("estimate").disabled = !config.booking_available;
     if (!config.booking_available)
       error(
@@ -713,6 +726,9 @@
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && currentId)
       showTrip().catch((err) => error("ride-error", err));
+  });
+  window.addEventListener("nexora:reconnected", () => {
+    if (session.get("token")) start().catch((err) => error("ride-error", err));
   });
   const draft = NexoraUI.drafts.take("ride");
   if (draft) {

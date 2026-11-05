@@ -2,6 +2,7 @@
   "use strict";
   const W = window.NexoraWorkspace,
     { $, esc, icon, api, empty } = W;
+  let canSuspend = false;
   let drivers = [],
     filter = "all",
     loading = false,
@@ -60,6 +61,7 @@
       const data = await api("/admin/drivers");
       if (current !== session) return;
       drivers = data.drivers || [];
+      canSuspend = data.can_suspend === true;
       render();
       $("load-error").hidden = true;
       $("connection").className = "connection live";
@@ -164,18 +166,37 @@
     if (!d) return;
     const dialog = W.dialog(
       "Driver application",
-      `<div class="person review-person"><span class="avatar">${esc(W.initials(d.first_name + " " + d.last_name))}</span><div><h3>${esc(d.first_name)} ${esc(d.last_name)}</h3><small>${esc(d.driver_number || "")}</small></div></div><div class="day-summary"><dl><div><dt>Email</dt><dd class="review-email">${esc(d.email)}</dd></div><div><dt>Phone</dt><dd>${esc(d.phone || "—")}</dd></div><div><dt>Services</dt><dd>${esc((d.service_types || []).map(W.human).join(", ") || "—")}</dd></div><div><dt>Background check</dt><dd>${esc(W.human(d.background_check_status || "Not recorded"))}</dd></div><div><dt>Account status</dt><dd>${esc(W.human(d.status))}</dd></div></dl></div><p class="login-footnote">Approval allows this driver to go online and accept jobs. Confirm that you have reviewed their details before continuing.</p><p id="approval-error" class="error-text" role="alert"></p><div class="dialog-actions"><button id="review-close">Close</button>${!d.onboarding_completed && d.status !== "suspended" ? '<button id="approve-driver" class="primary">' + icon("check") + " Approve driver</button>" : ""}</div>`,
+      `<div class="person review-person"><span class="avatar">${esc(W.initials(d.first_name + " " + d.last_name))}</span><div><h3>${esc(d.first_name)} ${esc(d.last_name)}</h3><small>${esc(d.driver_number || "")}</small></div></div><div class="day-summary"><dl><div><dt>Email</dt><dd class="review-email">${esc(d.email)}</dd></div><div><dt>Phone</dt><dd>${esc(d.phone || "—")}</dd></div><div><dt>Services</dt><dd>${esc((d.service_types || []).map(W.human).join(", ") || "—")}</dd></div><div><dt>Operator review</dt><dd>${esc(W.human(d.background_check_status || "Not recorded"))}</dd></div><div><dt>Account status</dt><dd>${esc(W.human(d.status))}</dd></div></dl></div><div><h3>Registered vehicles</h3>${(d.vehicles || []).map((v) => `<p>${esc(v.plate_number)} · ${esc(v.make)} ${esc(v.model)} · ${esc(v.year)} · ${esc(v.color)} · ${esc(v.vehicle_type)}</p>`).join("") || "<p>No active vehicle on record.</p>"}</div><p class="login-footnote">Approval allows this driver to go online and accept jobs. Confirm that you have reviewed their details before continuing. These are manual operator checks, not an automated background check.</p>${!d.onboarding_completed ? '<label><input type="checkbox" id="review-identity"> Identity reviewed</label><label><input type="checkbox" id="review-license"> Driving licence reviewed</label><label><input type="checkbox" id="review-vehicle"> Vehicle and registration reviewed</label>' : ""}<p id="approval-error" class="error-text" role="alert"></p><div class="dialog-actions"><button id="review-close">Close</button>${!d.onboarding_completed && d.status !== "suspended" ? '<button id="approve-driver" class="primary">' + icon("check") + " Approve driver</button>" : ""}</div>`,
     );
+    dialog
+      .querySelector("#suspend-driver")
+      ?.addEventListener("click", async (event) => {
+        event.currentTarget.disabled = true;
+        try {
+          await api(
+            "/admin/drivers/" + encodeURIComponent(d.id) + "/suspend",
+            {},
+          );
+          dialog.close();
+          await refresh();
+          W.toast("Driver suspended. They cannot receive new jobs.");
+        } catch (error) {
+          dialog.querySelector("#approval-error").textContent = error.message;
+          const button = dialog.querySelector("#suspend-driver");
+          if (button) button.disabled = false;
+        }
+      });
     dialog.querySelector("#review-close").onclick = () => dialog.close();
     dialog
       .querySelector("#approve-driver")
       ?.addEventListener("click", async (e) => {
         e.currentTarget.disabled = true;
         try {
-          await api(
-            "/admin/drivers/" + encodeURIComponent(d.id) + "/approve",
-            {},
-          );
+          await api("/admin/drivers/" + encodeURIComponent(d.id) + "/approve", {
+            reviewed_identity: dialog.querySelector("#review-identity").checked,
+            reviewed_license: dialog.querySelector("#review-license").checked,
+            reviewed_vehicle: dialog.querySelector("#review-vehicle").checked,
+          });
           dialog.close();
           W.toast("Driver approved. They can now go online.");
           await refresh();

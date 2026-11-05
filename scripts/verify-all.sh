@@ -16,6 +16,14 @@ node --check frontend/workspace.js
 node --check frontend/admin.js
 node --check frontend/ops.js
 node --check frontend/tracking.js
+node --check frontend/network.js
+node --check frontend/native-driver.js
+node --check frontend/support.js
+node --check frontend/support-workspace.js
+node --check frontend/delete-account.js
+node --check services/account.cjs
+node --check services/support.cjs
+node --check services/market.cjs
 node --check frontend/ui.js
 node --check frontend/home.js
 node --check frontend/driver.js
@@ -31,7 +39,7 @@ node --check services/maps.cjs
 node --check services/jobs.cjs
 node --check services/payments.cjs
 node --check services/notifications.cjs
-node --test scripts/booking-ui.test.cjs scripts/workspace-session.test.cjs scripts/tracking.test.cjs scripts/integrations.test.cjs scripts/customer-session.test.cjs
+node --test scripts/market.test.cjs scripts/connectivity.test.cjs scripts/native-driver.test.cjs scripts/booking-ui.test.cjs scripts/workspace-session.test.cjs scripts/tracking.test.cjs scripts/integrations.test.cjs scripts/customer-session.test.cjs
 python3 -m py_compile ai_engine.py
 echo "   ✅ Code syntax validation passed."
 

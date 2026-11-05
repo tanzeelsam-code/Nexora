@@ -13,7 +13,10 @@ const esc = (v) =>
         "'": "&#39;",
       })[c],
   );
-const money = (v) => `$${Number(v || 0).toFixed(2)}`;
+const money = (v, currency = publicConfig.currency || "PKR") =>
+  new Intl.NumberFormat(undefined, { style: "currency", currency }).format(
+    Number(v || 0),
+  );
 const store = {
   get(k) {
     try {
@@ -36,18 +39,14 @@ let locationTimer = null;
 let locationBusy = false;
 let manualLocation = false;
 let online = false;
+let nativeRunning = false;
+let trackingPaused = store.get("nexora_driver_tracking_paused") === "1";
 let podDeliveryId = null;
 let signed = false;
 
 const session = NexoraSession("nexora_driver", () => logout(true));
 async function api(path, options = {}) {
-  try {
-    return await session.api(path, options);
-  } catch (err) {
-    if (err.status === 503 && path.startsWith("/driver/jobs"))
-      showView("offline");
-    throw err;
-  }
+  return session.api(path, options);
 }
 
 function showView(name) {
@@ -75,8 +74,11 @@ async function login(e) {
       return;
     }
     session.save(data);
+    await window.NexoraDriverNative?.stop().catch(() => {});
+    trackingPaused = false;
+    store.set("nexora_driver_tracking_paused", null);
     $("login-password").value = "";
-    startApp();
+    await startApp();
   } catch (err) {
     $("login-error").textContent = err.message;
   }
@@ -87,6 +89,9 @@ async function logout(expired = false) {
     token = store.get(TOKEN_KEY);
   clearInterval(jobsTimer);
   clearInterval(locationTimer);
+  trackingPaused = true;
+  await window.NexoraDriverNative?.stop().catch(() => {});
+  nativeRunning = false;
   if ($("pod-modal").open) closePodModal();
   online = false;
   showView("login");
@@ -109,8 +114,39 @@ async function logout(expired = false) {
 }
 
 let publicConfig = {};
+if (window.NexoraDriverNative) {
+  $("driver-continuity").textContent =
+    "Going online starts Android driver updates. Nexora uses your location and checks for jobs while you switch apps or lock the screen, with an ongoing notification. Going offline or signing out stops updates. Internet and location access are required; force-stopping or closing the app can end the session.";
+  $("enable-alerts").textContent = "Enable background driver updates";
+  $("native-driver-status").hidden = false;
+}
+async function nativeStatus() {
+  if (!window.NexoraDriverNative) return;
+  try {
+    const status = await NexoraDriverNative.status(),
+      changed = nativeRunning !== status.running;
+    nativeRunning = !!status.running;
+    $("native-driver-status").textContent = status.message;
+    if (changed) syncLocationTimer();
+  } catch (error) {
+    $("native-driver-status").textContent = error.message;
+  }
+}
+async function startNativeUpdates() {
+  if (!window.NexoraDriverNative) return;
+  if (!online)
+    throw new Error("Go online before enabling background driver updates.");
+  await NexoraDriverNative.start(store.get(TOKEN_KEY));
+  trackingPaused = false;
+  store.set("nexora_driver_tracking_paused", null);
+  $("native-driver-status").textContent = "Starting Android driver updates…";
+}
 $("enable-alerts").addEventListener("click", async () => {
   try {
+    if (window.NexoraDriverNative) {
+      await startNativeUpdates();
+      return;
+    }
     await NexoraNotifications.enable(session.api, publicConfig);
     $("notification-status").textContent =
       "Job alerts are on. Keep this page open while online to share your current location.";
@@ -154,7 +190,7 @@ $("payout-onboard").addEventListener("click", async () => {
 
 function renderOnline() {
   const btn = $("online-btn");
-  btn.textContent = online ? "Online" : "Go online";
+  btn.textContent = online ? (trackingPaused ? "Confirm offline" : "Online") : "Go online";
   btn.setAttribute("aria-pressed", String(online));
   btn.style.color = online ? "var(--success)" : "var(--text-muted)";
 }
@@ -162,18 +198,45 @@ function renderOnline() {
 async function toggleOnline() {
   $("status-error").textContent = "";
   $("online-btn").disabled = true;
+  const stopping = online;
   try {
+    if (stopping) {
+      // Stop sharing locally even if the server cannot confirm offline status.
+      trackingPaused = true;
+      store.set("nexora_driver_tracking_paused", "1");
+      clearInterval(locationTimer);
+      await window.NexoraDriverNative?.stop().catch(() => {});
+      nativeRunning = false;
+    } else {
+      trackingPaused = false;
+      store.set("nexora_driver_tracking_paused", null);
+    }
     if (!online) await updateLocation();
     const data = await api("/driver/status", {
       method: "POST",
       body: JSON.stringify({ status: online ? "offline" : "available" }),
     });
     online = data.status !== "offline";
+    if (online) {
+      trackingPaused = false;
+      store.set("nexora_driver_tracking_paused", null);
+    }
+    renderOnline();
+    if (window.NexoraDriverNative) {
+      if (online) await startNativeUpdates();
+      else {
+        await NexoraDriverNative.stop();
+        nativeRunning = false;
+        $("native-driver-status").textContent = "Background updates are off.";
+      }
+    }
+  } catch (err) {
+    $("status-error").textContent = stopping
+      ? "Location sharing is paused on this device. Offline status was not confirmed; reconnect and retry. " + err.message
+      : err.message;
+  } finally {
     renderOnline();
     syncLocationTimer();
-  } catch (err) {
-    $("status-error").textContent = err.message;
-  } finally {
     $("online-btn").disabled = false;
   }
 }
@@ -219,10 +282,12 @@ async function updateLocation() {
       Math.abs(position.lng) > 180
     )
       throw new Error("Enter valid latitude and longitude.");
+    if (trackingPaused) return; // An in-flight GPS read must not restart sharing after Stop/sign-out.
     await api("/driver/location", {
       method: "POST",
       body: JSON.stringify(position),
     });
+    manualLocation = false;
     $("location-message").textContent =
       "Location updated at " + new Date().toLocaleTimeString();
   } finally {
@@ -231,7 +296,7 @@ async function updateLocation() {
 }
 function syncLocationTimer() {
   clearInterval(locationTimer);
-  if (online)
+  if (online && !nativeRunning && !trackingPaused)
     locationTimer = setInterval(
       () =>
         updateLocation().catch((err) => {
@@ -263,9 +328,12 @@ $("device-location").addEventListener("click", async () => {
 
 async function loadEarnings() {
   try {
-    const { earnings, freight } = await api("/driver/earnings?period=today");
+    const { earnings, freight, currency } = await api(
+      "/driver/earnings?period=today",
+    );
     $("earnings-total").textContent = money(
       Number(earnings.total_earnings) + Number(freight.total_earnings),
+      currency,
     );
     $("earnings-trips").textContent = earnings.completed_trips;
     $("earnings-deliveries").textContent = freight.completed_deliveries;
@@ -308,14 +376,14 @@ function jobCard(kind, job) {
   const buttons = actions
     .map(
       ([action, label], i) =>
-        `<button class="btn-action ${i > 0 ? "btn-secondary" : ""}" data-kind="${kind}" data-id="${esc(job.id)}" data-action="${action}" data-cash="${job.payment_method === "cash"}" data-fare="${esc(money(job.total_fare))}">${esc(label)}</button>`,
+        `<button class="btn-action ${i > 0 ? "btn-secondary" : ""}" data-kind="${kind}" data-id="${esc(job.id)}" data-action="${action}" data-cash="${job.payment_method === "cash"}" data-fare="${esc(money(job.total_fare, job.currency))}">${esc(label)}</button>`,
     )
     .join("");
   return `
         <div class="job-card">
           <div class="job-badge-row">
             <div class="job-type-pill">${kind === "delivery" ? "Delivery" : "Ride"} · ${esc(job.status.replace(/_/g, " "))}</div>
-            <div class="payout-pill">${money(job.total_fare)}</div>
+            <div class="payout-pill">${money(job.total_fare, job.currency)}</div>
           </div>
           <h3 style="font-size: 15px; font-weight: 700;">${esc(title)}</h3>
           <div class="address-flow">
@@ -328,7 +396,9 @@ function jobCard(kind, job) {
 
 async function loadJobs() {
   try {
-    const { trips, deliveries, driver } = await api("/driver/jobs/current");
+    const { trips, deliveries, driver, offline } = await api(
+      "/driver/jobs/current",
+    );
     if (driver) {
       const changed = online !== driver.is_online;
       online = driver.is_online;
@@ -345,7 +415,14 @@ async function loadJobs() {
     $("jobs").innerHTML = cards.length
       ? cards.join("")
       : '<div class="job-card notice"><strong>No active jobs</strong>Go online to receive ride and delivery offers.</div>';
+    $("jobs")
+      .querySelectorAll("button")
+      .forEach((button) => (button.disabled = !!offline));
   } catch (err) {
+    if ($("jobs").querySelector("[data-action]")) {
+      $("status-error").textContent = err.message;
+      return;
+    }
     $("jobs").innerHTML =
       `<div class="job-card notice"><strong>Could not load jobs</strong>${esc(err.message)}</div>`;
   }
@@ -517,18 +594,26 @@ async function startApp() {
   $("driver-name").textContent = store.get(NAME_KEY) || "Driver";
   renderOnline();
   showView("app");
-  publicConfig = await api("/config");
+  try {
+    publicConfig = await api("/config");
+  } catch (error) {
+    $("status-error").textContent = error.message;
+  }
   await Promise.all([loadJobs(), loadEarnings(), loadPayouts()]);
+  await nativeStatus();
   clearInterval(jobsTimer);
   jobsTimer = setInterval(() => {
-    if (!document.hidden) loadJobs();
+    if (!document.hidden) {
+      loadJobs();
+      nativeStatus();
+    }
   }, 5000);
 }
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && store.get(TOKEN_KEY)) {
     loadJobs();
-    if (online) updateLocation().catch(() => {});
+    if (online && !trackingPaused && !nativeRunning) updateLocation().catch(() => {});
   }
 });
 window.addEventListener("pageshow", (event) => {
@@ -553,3 +638,10 @@ window.addEventListener("pageshow", (event) => {
   }
   showView("login");
 })();
+
+window.addEventListener("nexora:reconnected", () => {
+  if (store.get(TOKEN_KEY))
+    startApp().catch((error) => {
+      $("status-error").textContent = error.message;
+    });
+});
