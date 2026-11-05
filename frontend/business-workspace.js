@@ -10,6 +10,8 @@
   let areas = [],
     deliveries = [],
     page = 1,
+    walletPage = 1,
+    wallets = { drivers: [], pending: [], can_adjust: false },
     canEdit = false,
     sequence = 0;
   for (const name of ["nexora:signed-out", "nexora:session-expired"])
@@ -28,11 +30,14 @@
     $("business-refresh").disabled = true;
     $("business-error").textContent = "";
     try {
-      const [coverage, cod] = await Promise.all([
+      const [coverage, cod, walletData] = await Promise.all([
         api("/admin/areas"),
         api("/admin/cod?page=" + page),
+        api("/admin/driver-wallets?page=" + walletPage),
       ]);
       if (current !== sequence) return;
+      wallets = walletData;
+      renderWallets();
       areas = coverage.areas;
       deliveries = cod.deliveries;
       canEdit = coverage.can_edit;
@@ -78,6 +83,122 @@
       $("business-refresh").disabled = false;
     }
   }
+  const METHOD_NAMES = {
+    easypaisa: "Easypaisa",
+    jazzcash: "JazzCash",
+    bank_transfer: "Bank transfer",
+    cash_office: "Cash at office",
+  };
+  const driverName = (d) =>
+    `${d.first_name || ""} ${d.last_name || ""}`.trim() || d.driver_number;
+  function renderWallets() {
+    const c = wallets.currency;
+    $("wallet-limit-note").textContent =
+      wallets.limit === null
+        ? "No balance limit is set (DRIVER_CASH_LIMIT). Drivers can keep working whatever they owe."
+        : `Drivers who owe more than ${W.money(wallets.limit, c)} cannot go online or receive new jobs.`;
+    $("wallet-pending").innerHTML =
+      wallets.pending
+        .map(
+          (r) =>
+            `<article class="card order-card"><div class="order-heading"><h3>${esc(driverName(r))} · ${esc(W.money(r.amount, r.currency))}</h3><span class="status-pill">${esc(METHOD_NAMES[r.method])}</span></div><p>Transaction ID <strong>${esc(r.reference)}</strong> · submitted ${esc(new Date(r.created_at).toLocaleString())}</p><button data-claim="${esc(r.id)}" data-action="confirm">Confirm payment</button> <button class="secondary" data-claim="${esc(r.id)}" data-action="reject">Reject</button></article>`,
+        )
+        .join("") || '<div class="card"><p>No payments waiting.</p></div>';
+    $("wallet-drivers").innerHTML =
+      wallets.drivers
+        .map(
+          (d) =>
+            `<article class="card order-card"><div class="order-heading"><h3>${esc(driverName(d))}</h3><span class="status-pill">${Number(d.balance) > 0 ? "Owes " + esc(W.money(d.balance, c)) : "Credit " + esc(W.money(-Number(d.balance), c))}</span></div><p>${esc(d.driver_number || "")} · ${esc(d.phone || "")}${d.pending_count ? ` · ${d.pending_count} payment(s) waiting` : ""}</p><button data-driver="${esc(d.id)}" data-action="record">Record payment</button>${wallets.can_adjust ? ` <button class="secondary" data-driver="${esc(d.id)}" data-action="adjust">Adjust</button>` : ""}</article>`,
+        )
+        .join("") ||
+      '<div class="card"><p>No driver owes commission.</p></div>';
+    $("wallet-prev").disabled = walletPage === 1;
+    $("wallet-next").disabled = !wallets.has_more;
+    $("wallet-page").textContent = "Page " + walletPage;
+  }
+  function walletDialog(title, html, submit) {
+    const dialog = W.dialog(title, html);
+    const form = dialog.querySelector("form");
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const button = form.querySelector("button");
+      button.disabled = true;
+      try {
+        await submit(form);
+        dialog.close();
+        await refresh();
+      } catch (e) {
+        form.querySelector(".error").textContent = e.message;
+      } finally {
+        button.disabled = false;
+      }
+    };
+  }
+  $("wallet-pending").onclick = (e) => {
+    const button = e.target.closest("[data-claim]");
+    if (!button) return;
+    const r = wallets.pending.find((x) => x.id === button.dataset.claim);
+    if (!r) return;
+    const amount = esc(W.money(r.amount, r.currency));
+    if (button.dataset.action === "confirm")
+      walletDialog(
+        "Confirm driver payment",
+        `<p>${esc(driverName(r))} · ${esc(METHOD_NAMES[r.method])} · TID <strong>${esc(r.reference)}</strong></p><form><label class="check-label"><input name="confirm" type="checkbox" required><span>I found this payment of ${amount} in our ${esc(METHOD_NAMES[r.method])} statement.</span></label><p class="help-copy">Confirming reduces the driver's balance. It is a permanent record and moves no money.</p><button class="primary">Confirm ${amount}</button><p class="error" role="alert"></p></form>`,
+        (form) =>
+          api(`/admin/driver-wallets/remittances/${r.id}/confirm`, {
+            amount: Number(r.amount),
+            confirm: form.elements.confirm.checked,
+          }),
+      );
+    else
+      walletDialog(
+        "Reject driver payment",
+        `<p>${esc(driverName(r))} · ${amount} · TID ${esc(r.reference)}</p><form><label>Reason the driver will see<input name="note" minlength="3" maxlength="300" required placeholder="No matching payment in our statement"></label><button class="primary">Reject payment</button><p class="error" role="alert"></p></form>`,
+        (form) =>
+          api(`/admin/driver-wallets/remittances/${r.id}/reject`, {
+            note: form.elements.note.value,
+          }),
+      );
+  };
+  $("wallet-drivers").onclick = (e) => {
+    const button = e.target.closest("[data-driver]");
+    if (!button) return;
+    const d = wallets.drivers.find((x) => x.id === button.dataset.driver);
+    if (!d) return;
+    if (button.dataset.action === "record")
+      walletDialog(
+        "Record payment from " + driverName(d),
+        `<form class="business-form"><label>Paid with<select name="method"><option value="cash_office">Cash at office</option><option value="easypaisa">Easypaisa</option><option value="jazzcash">JazzCash</option><option value="bank_transfer">Bank transfer</option></select></label><label>Receipt or transaction ID<input name="reference" minlength="4" maxlength="60" required></label><label>Amount (${esc(wallets.currency)})<input name="amount" type="number" min="0.01" step="0.01" required></label><label class="check-label full"><input name="confirm" type="checkbox" required><span>I have received this payment.</span></label><button class="primary full">Record payment</button><p class="error full" role="alert"></p></form>`,
+        (form) =>
+          api(`/admin/driver-wallets/${d.id}/remittances`, {
+            method: form.elements.method.value,
+            reference: form.elements.reference.value,
+            amount: Number(form.elements.amount.value),
+            confirm: form.elements.confirm.checked,
+          }),
+      );
+    else if (wallets.can_adjust)
+      walletDialog(
+        "Adjust balance for " + driverName(d),
+        `<form class="business-form"><label>Amount (${esc(wallets.currency)}; negative reduces what they owe)<input name="amount" type="number" step="0.01" required></label><label class="full">Reason (kept in the audit trail)<input name="note" minlength="5" maxlength="300" required></label><label class="check-label full"><input name="confirm" type="checkbox" required><span>Record this adjustment.</span></label><button class="primary full">Save adjustment</button><p class="error full" role="alert"></p></form>`,
+        (form) =>
+          api(`/admin/driver-wallets/${d.id}/adjustments`, {
+            amount: Number(form.elements.amount.value),
+            note: form.elements.note.value,
+            confirm: form.elements.confirm.checked,
+          }),
+      );
+  };
+  $("wallet-prev").onclick = () => {
+    if (walletPage > 1) {
+      walletPage--;
+      refresh();
+    }
+  };
+  $("wallet-next").onclick = () => {
+    walletPage++;
+    refresh();
+  };
   function editArea(area) {
     const a = area || {
       name: "",

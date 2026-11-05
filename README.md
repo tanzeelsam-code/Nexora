@@ -103,6 +103,7 @@ docker compose up -d      # postgres, redis, api, ai-engine, nginx, prometheus, 
 | Auth | `POST /auth/register` `login` `refresh` `logout` · `POST /auth/phone/{start,verify,complete}` · `GET /account/phone` `POST /account/phone/{code,verify}` · `POST /drivers/register` |
 | Rider / shipper | `POST /trips` `GET /trips` `GET /trips/:id` `POST /trips/:id/cancel` `POST /trips/:id/rate` · `POST /deliveries` `GET /deliveries/:id` `POST /deliveries/:id/cancel` · `POST /payments/setup-intent` |
 | Driver | `POST /driver/status` `location` `mode` · `GET /driver/earnings` `GET /driver/jobs/current` · `POST /driver/trips/:id/{accept,decline,arrive,start,complete}` · `POST /driver/deliveries/:id/{accept,decline,pickup,deliver}` |
+| Wallet | `GET /driver/wallet` `POST /driver/wallet/remittances` · `GET /admin/driver-wallets` `POST /admin/driver-wallets/remittances/:id/{confirm,reject}` `POST /admin/driver-wallets/:driverId/{remittances,adjustments}` |
 | Ops / admin | `GET /ops/overview` `GET /fleet/drivers` `POST /fleet/rebalance` `GET /cold-chain/shipments` `GET /admin/dashboard` `GET /admin/drivers` `POST /admin/drivers/:id/approve` (`suspend`: admin only) |
 | Sensors | `POST /cold-chain/telemetry` (device key or ops/driver token) |
 | Stripe | `POST /webhooks/stripe` (signature verified, events stored once) |
@@ -155,7 +156,7 @@ Open `/account-recovery.html` while you know your current password and generate 
 ## Remaining product limits
 
 - **No trained-model claims.** Untrained architectures live in `ai/research_models.py` and are never imported by the serving runtime. Dispatch uses proximity, pricing uses published rates with neutral surge, and demand forecasts explicitly report unavailable. Real trip history, training and independent evaluation are still required before introducing learned models.
-- **Freight uses cash on delivery.** Customers review a signed, five-minute quote before booking. Drivers confirm cash collection, recipient name and signature; completion writes one receipt atomically. Database-backed request identities prevent duplicate deliveries if the response cache is lost. Card capture/Connect settlement covers rides only. Cash earnings are never sent again as electronic payouts. Operators reconcile the platform commission collected by cash drivers manually. Legacy deliveries with no payment method require operations reconciliation.
+- **Freight uses cash on delivery.** Customers review a signed, five-minute quote before booking. Drivers confirm cash collection, recipient name and signature; completion writes one receipt atomically. Database-backed request identities prevent duplicate deliveries if the response cache is lost. Card capture/Connect settlement covers rides only. Cash earnings are never sent again as electronic payouts. Commission on cash jobs is tracked in the driver cash wallet; operators confirm drivers' payments against their own statements. Legacy deliveries with no payment method require operations reconciliation.
 - **Integration activation needs real credentials.** Automated payment tests use a fake Stripe provider and real isolated PostgreSQL/Redis. They do not certify live card processing, bank payouts, Mapbox account permissions or push delivery on physical devices.
 - **Mobile and operations.** The Android APK is a WebView wrapper. SMS is used only for sign-in codes (see Phone sign-in); SMS trip notifications, driver document uploads and scheduled bookings are not implemented. Android driver mode provides an explicitly started location foreground service; real-device and weak-signal validation is still required. Scheduled requests are rejected explicitly. `ride.html` redirects to the customer portal; `freight.html` is the real delivery portal. Shipment insurance is unavailable in production until an actual insurance arrangement is implemented.
 - **Launch validation.** Run a Stripe sandbox/SCA test, physical-device push test, and a supervised field pilot before public launch. Cloudflare supplies HTTPS; standalone Docker deployments still require a TLS terminator.
@@ -232,6 +233,18 @@ Customers and drivers can sign in with a 6-digit text message code instead of an
 - **Deletion.** Phone-only accounts delete themselves at `/delete-account.html` by signing in with a code and confirming with a second code. Deletion removes stored codes for the number.
 
 Apply `supabase/migrations/20261105190000_phone_sign_in.sql` before deploying. It makes `users.email` optional, adds `phone_verified_at`, an index on normalized phone digits and the `phone_verifications` table behind RLS. Local Node startup applies it automatically. `NEXORA_TEST_DATABASE=isolated npm run test:integrations` includes the phone sign-in tests (fake SMS gateway, real database). SMS delivery through a real provider and on real phones has not been tested.
+
+### Driver cash wallet (commission on cash jobs)
+
+On a cash ride or delivery the driver keeps the whole fare. Completing the job now writes one ledger entry for the platform commission, inside the same transaction as the completion, so the driver's balance shows what they owe. Card trips are unchanged (Stripe settlements). Goods COD stays in the merchant COD flow; the wallet only shows drivers how much goods cash they still hold.
+
+- **Paying.** The driver app shows the balance, the accounts to pay (`DRIVER_REMITTANCE_ACCOUNTS_JSON`: Easypaisa, JazzCash or bank) and a form for the transaction ID and amount. A claim cannot exceed the outstanding balance, and a transaction ID can back only one live claim. A rejected reference can be corrected and resubmitted.
+- **Confirming.** Operations review waiting payments in **Areas & COD → Driver cash commission** against their own statement and confirm the exact amount or reject with a note the driver sees. They can also record cash received at an office. Administrators can post signed adjustments with a reason (for example an opening balance). Every action is audited and replays are safe.
+- **Limit.** With `DRIVER_CASH_LIMIT` set, a driver who owes more than the limit cannot go online and receives no new offers until a payment is confirmed. Going offline is always allowed.
+- **Deletion.** Owing commission does not block account deletion. Ledger and payment records are kept as transaction records, so operations can still follow up a balance and review a waiting payment.
+- **What it is not.** Nexora does not call Easypaisa or JazzCash and moves no money. Integrating their merchant APIs for automatic confirmation needs merchant accounts and sandbox credentials. The ledger starts empty: commission on cash jobs completed before this migration stays in the operator's existing manual records (use an administrator adjustment to carry a balance over).
+
+Apply `supabase/migrations/20261105200000_driver_cash_wallet.sql` before deploying. It adds `driver_remittances` and the append-only `driver_cash_ledger` (the backend role cannot update or delete ledger rows) behind RLS. `NEXORA_TEST_DATABASE=isolated npm run test:integrations` includes the wallet tests.
 
 ### Connectivity behavior
 

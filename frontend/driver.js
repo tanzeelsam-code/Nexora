@@ -379,6 +379,88 @@ async function loadEarnings() {
   }
 }
 
+const METHOD_NAMES = {
+  easypaisa: "Easypaisa",
+  jazzcash: "JazzCash",
+  bank_transfer: "Bank transfer",
+  cash_office: "Cash at office",
+};
+async function loadWallet() {
+  try {
+    const w = await api("/driver/wallet");
+    const owed = Number(w.balance);
+    $("wallet-balance").textContent =
+      owed > 0
+        ? `You owe ${money(owed, w.currency)}`
+        : owed < 0
+          ? `Credit ${money(-owed, w.currency)}`
+          : "Nothing owed";
+    $("wallet-limit").hidden = !w.over_limit;
+    $("wallet-limit").textContent = w.over_limit
+      ? `Your balance is above the ${money(w.limit, w.currency)} limit. You can't go online or receive new jobs until your payment is confirmed.`
+      : "";
+    $("wallet-goods").hidden = !(Number(w.goods_cash.amount) > 0);
+    $("wallet-goods").textContent = `Goods cash to hand over: ${money(w.goods_cash.amount, w.currency)} from ${w.goods_cash.deliveries} ${w.goods_cash.deliveries === 1 ? "delivery" : "deliveries"}. This belongs to merchants and is separate from your commission.`;
+    $("wallet-accounts").innerHTML = w.payment_accounts.length
+      ? `<p>Pay to:</p><ul>${w.payment_accounts
+          .map(
+            (a) =>
+              `<li><strong>${esc(METHOD_NAMES[a.method])}</strong> · ${esc(a.title)} · ${esc(a.account)}</li>`,
+          )
+          .join("")}</ul>`
+      : "<p>Ask operations which account to pay.</p>";
+    $("wallet-pay").hidden = !(owed - Number(w.pending_confirmation) > 0);
+    $("wallet-amount").max = Math.max(0, owed - Number(w.pending_confirmation)).toFixed(2);
+    $("wallet-claims").innerHTML = w.remittances
+      .slice(0, 5)
+      .map(
+        (r) =>
+          `<p class="wallet-claim">${esc(METHOD_NAMES[r.method])} ${esc(r.reference)} · ${esc(money(r.amount, r.currency))} · <strong>${esc(r.status === "pending" ? "Waiting for confirmation" : r.status === "confirmed" ? "Confirmed" : "Rejected")}</strong>${r.review_note ? ` — ${esc(r.review_note)}` : ""}</p>`,
+      )
+      .join("");
+    $("wallet-entries").innerHTML =
+      w.entries
+        .map((e) => {
+          const label =
+            e.kind === "commission"
+              ? `Commission · ${e.trip_number || e.delivery_number || ""}`
+              : e.kind === "remittance"
+                ? `Payment · ${METHOD_NAMES[e.method] || ""} ${e.reference || ""}`
+                : `Adjustment · ${e.note || ""}`;
+          return `<p>${esc(new Date(e.created_at).toLocaleDateString())} · ${esc(label)} · ${esc(money(e.amount, e.currency))}</p>`;
+        })
+        .join("") || "<p>No cash jobs yet.</p>";
+  } catch (err) {
+    $("wallet-balance").textContent = "—";
+    $("wallet-summary").textContent = err.message;
+  }
+}
+$("wallet-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget,
+    button = form.querySelector("button");
+  button.disabled = true;
+  $("wallet-error").textContent = "";
+  try {
+    const data = await api("/driver/wallet/remittances", {
+      method: "POST",
+      body: {
+        method: form.elements.method.value,
+        reference: form.elements.reference.value.trim(),
+        amount: Number(form.elements.amount.value),
+      },
+    });
+    form.reset();
+    $("wallet-pay").open = false;
+    $("wallet-status").textContent = data.message;
+    await loadWallet();
+  } catch (err) {
+    $("wallet-error").textContent = err.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 // Which buttons a job shows depends on its status; each maps to a driver action endpoint.
 const DELIVERY_ACTIONS = {
   pending: [
@@ -511,7 +593,7 @@ $("jobs").addEventListener("click", async (e) => {
       method: "POST",
       body: JSON.stringify(body),
     });
-    await Promise.all([loadJobs(), loadEarnings()]);
+    await Promise.all([loadJobs(), loadEarnings(), loadWallet()]);
   } catch (err) {
     // Offers expire after a short window; a 404/409 usually means the job moved on.
     const stale = /not found|cannot/i.test(err.message);
@@ -627,7 +709,7 @@ async function submitPod() {
       },
     );
     closePodModal();
-    await Promise.all([loadJobs(), loadEarnings()]);
+    await Promise.all([loadJobs(), loadEarnings(), loadWallet()]);
   } catch (err) {
     $("pod-error").textContent = err.message;
   } finally {
@@ -646,7 +728,7 @@ async function startApp() {
   } catch (error) {
     $("status-error").textContent = error.message;
   }
-  await Promise.all([loadJobs(), loadEarnings(), loadPayouts()]);
+  await Promise.all([loadJobs(), loadEarnings(), loadPayouts(), loadWallet()]);
   await nativeStatus();
   clearInterval(jobsTimer);
   jobsTimer = setInterval(() => {

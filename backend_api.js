@@ -34,6 +34,7 @@ const { registerAreas } = require('./services/areas.cjs');
 const { registerMerchants, moneySchema } = require('./services/merchants.cjs');
 const { createSms } = require('./services/sms.cjs');
 const { registerPhoneAuth } = require('./services/phone-auth.cjs');
+const { registerDriverWallet } = require('./services/driver-wallet.cjs');
 
 // ============================================================
 // CONFIGURATION
@@ -1350,9 +1351,10 @@ async function listNearbyDrivers({ lat, lng, serviceType, excludeDriverIds = [] 
       AND $3::service_type = ANY(d.service_types)
       AND NOT (d.id = ANY($4::uuid[]))
       AND ST_DWithin(d.current_location, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, $5)
+      AND ${wallet.dispatchCondition('d.id', '$6', '$7')}
     ORDER BY distance_m
     LIMIT 25
-  `, [lat, lng, serviceType, excludeDriverIds, config.app.driverSearchRadiusKm * 1000]);
+  `, [lat, lng, serviceType, excludeDriverIds, config.app.driverSearchRadiusKm * 1000, wallet.limit, wallet.currency]);
   return rows.map((r) => ({
     ...r,
     lat: Number(r.lat),
@@ -1566,6 +1568,8 @@ async function driverTripAction(driver, tripId, action, body = {}) {
         trip.payment_method === 'cash' ? new Date() : null, trip.stripe_payment_intent_id || null,
       ]);
       if (trip.payment_method === 'card') await jobs.enqueue('capture', `capture:${trip.id}`, { trip_id: trip.id }, client);
+      // Cash rides: the driver keeps the fare and owes the platform its commission.
+      if (trip.payment_method === 'cash') await wallet.recordCommission(client, { driverId: driver.id, tripId: trip.id, amount: platformFee, currency: trip.currency });
       return true;
     });
     if (!result) return bad();
@@ -1944,6 +1948,7 @@ async function driverDeliveryAction(driver, deliveryId, action, body = {}) {
         INSERT INTO payments(payment_ref,delivery_id,customer_id,amount,currency,method,status,gateway,captured_at)
         VALUES($1,$2,$3,$4,$5,'cash','captured','cash',NOW())`,
         [`PAY-${d.delivery_number}`,d.id,d.customer_id,fare,d.currency]);
+      if (d.payment_method === 'cash') await wallet.recordCommission(client, { driverId: driver.id, deliveryId: d.id, amount: platformFee, currency: d.currency });
       await client.query(`
         UPDATE drivers SET total_trips = total_trips + 1, completed_trips = completed_trips + 1,
           total_earnings = total_earnings + $1, status = 'available'
@@ -2618,6 +2623,10 @@ app.post('/api/v1/driver/status', { preHandler: [authenticate, requireDatabase, 
   if (req.driver.status === 'suspended') {
     return reply.code(403).send({ error: 'Account suspended' });
   }
+  if (status !== 'offline') {
+    const owed = await wallet.overLimit(req.driver.id);
+    if (owed !== null) return reply.code(403).send({ error: wallet.limitMessage(owed), code: 'cash_limit' });
+  }
 
   await query('UPDATE drivers SET status = $1::driver_status, is_online = $2 WHERE id = $3', [status, status !== 'offline', req.driver.id]);
   query('REFRESH MATERIALIZED VIEW active_drivers_view').catch(() => {});
@@ -3150,6 +3159,7 @@ registerSupport({app,query,validate,authenticate,requireDatabase,requireRole,aud
 const areas=registerAreas({app,query,validate,authenticate,requireDatabase,requireRole,auditLog,
   ready:()=>market.ready && (!isProduction || maps.enabled),timezone:market.timezone,required:areasRequired});
 const merchants=registerMerchants({app,query,transaction,validate,authenticate,requireDatabase,requireRole,market});
+const wallet = registerDriverWallet({ app, query, transaction, validate, authenticate, requireDatabase, requireRole, requireDriver, auditLog, market, env: environment });
 const sms = createSms(environment, { fetch: runtime.fetch || globalThis.fetch, logger, isProduction });
 const phoneAuth = registerPhoneAuth({ app, query, transaction, validate, authenticate, requireDatabase, issueAuthTokens, bcrypt, sms, kv,
   secret: getEnv('PHONE_CODE_SECRET', config.jwt.secret), country: market.country, clearUserCache: userId => Cache.del(`user:${userId}`) });
@@ -3410,7 +3420,7 @@ async function start() {
       dbConnected = true;
       logger.info('✅ Database connected');
       await ensureOperationalTables();
-      for (const migration of ['20261019085513_booking_payments_notifications.sql','20261024093153_release_recovery_cash_billing.sql','20261024093804_durable_delivery_requests.sql','20261105154028_area_availability_merchant_cod.sql','20261105190000_phone_sign_in.sql']) {
+      for (const migration of ['20261019085513_booking_payments_notifications.sql','20261024093153_release_recovery_cash_billing.sql','20261024093804_durable_delivery_requests.sql','20261105154028_area_availability_merchant_cod.sql','20261105190000_phone_sign_in.sql','20261105200000_driver_cash_wallet.sql']) {
         await db.query(fs.readFileSync(path.join(__dirname,'supabase/migrations',migration),'utf8'));
       }
       logger.info('✅ Operational tables ensured');

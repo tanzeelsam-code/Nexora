@@ -19,7 +19,8 @@
       "Driver locations during an online shift"
     ],
     "financial_info": [
-      "Ride/delivery transaction amounts, receipts and cash collection status; cards disabled for current launch"
+      "Ride/delivery transaction amounts, receipts and cash collection status; cards disabled for current launch",
+      "Driver commission balances and the Easypaisa/JazzCash/bank transaction IDs and amounts drivers submit"
     ],
     "messages": [
       "Support requests and staff responses",

@@ -193,6 +193,46 @@
             Set up driver payouts
           </button>
         </section>
+        <section class="job-card payout-section wallet-section" aria-labelledby="wallet-title">
+          <strong id="wallet-title">Cash wallet</strong>
+          <p class="wallet-balance" id="wallet-balance">—</p>
+          <p id="wallet-summary">
+            On cash jobs you keep the whole fare. The Nexora commission is
+            added here until you pay it.
+          </p>
+          <p id="wallet-limit" class="wallet-alert" role="status" hidden></p>
+          <p id="wallet-goods" hidden></p>
+          <div id="wallet-accounts"></div>
+          <details id="wallet-pay">
+            <summary>I've paid — enter the transaction ID</summary>
+            <form id="wallet-form">
+              <div class="input-group">
+                <label for="wallet-method">Paid with</label>
+                <select id="wallet-method" name="method" required>
+                  <option value="easypaisa">Easypaisa</option>
+                  <option value="jazzcash">JazzCash</option>
+                  <option value="bank_transfer">Bank transfer</option>
+                </select>
+              </div>
+              <div class="input-group">
+                <label for="wallet-reference">Transaction ID (TID)</label>
+                <input id="wallet-reference" name="reference" maxlength="60" autocomplete="off" required />
+              </div>
+              <div class="input-group">
+                <label for="wallet-amount">Amount paid</label>
+                <input id="wallet-amount" name="amount" type="number" inputmode="decimal" min="0.01" step="0.01" required />
+              </div>
+              <button class="btn-action" type="submit">Submit payment</button>
+              <p class="error-text" id="wallet-error" role="alert"></p>
+            </form>
+          </details>
+          <p id="wallet-status" role="status"></p>
+          <div id="wallet-claims"></div>
+          <details>
+            <summary>Recent wallet activity</summary>
+            <div id="wallet-entries"></div>
+          </details>
+        </section>
         <div class="jobs" id="jobs"></div>
       </div>
     </main>
