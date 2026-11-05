@@ -3,22 +3,45 @@ plugins {
 }
 
 android {
-    namespace 'com.nexus.logistics'
-    compileSdk 35
+    namespace 'com.nexora.logistics'
+    compileSdk 36
 
     defaultConfig {
-        applicationId "com.nexus.logistics"
+        applicationId "com.nexora.logistics"
         minSdk 24
-        targetSdk 35
-        versionCode 1
-        versionName "1.0.0"
+        targetSdk 36
+        versionCode Integer.parseInt(providers.gradleProperty('versionCode').getOrElse('2'))
+        versionName providers.gradleProperty('versionName').getOrElse('1.0.1')
+        buildConfigField 'String', 'APP_URL', '"https://nexora-ride-logistic.tanzeelsam.workers.dev/"'
+    }
+
+    buildFeatures { buildConfig true }
+    signingConfigs {
+        release {
+            if (System.getenv('NEXORA_KEYSTORE')) {
+                storeFile file(System.getenv('NEXORA_KEYSTORE'))
+                storePassword System.getenv('NEXORA_STORE_PASSWORD')
+                keyAlias System.getenv('NEXORA_KEY_ALIAS')
+                keyPassword System.getenv('NEXORA_KEY_PASSWORD')
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            // Opt-in emulator fixture only. Release always uses the canonical HTTPS app.
+            if (providers.gradleProperty('isolatedQa').getOrElse('false') == 'true') {
+                buildConfigField 'String', 'APP_URL', '"https://localhost:3443/"'
+            }
+        }
         release {
+            if (System.getenv('NEXORA_KEYSTORE')) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+    }
+    if (providers.gradleProperty('isolatedQa').getOrElse('false') == 'true') {
+        sourceSets.debug.res.srcDir layout.buildDirectory.dir('generated/qa-res')
     }
 
     compileOptions {
@@ -26,12 +49,10 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    sourceSets {
-        main {
-            assets.srcDirs = ['src/main/assets', '../../frontend']
-        }
-    }
+    lint { abortOnError true }
 }
 
 dependencies {
+    implementation 'androidx.webkit:webkit:1.17.1'
+    testImplementation 'junit:junit:4.13.2'
 }

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Support requests · Nexora</title>
+    <link rel="stylesheet" href="/brand.css" />
+    <link rel="stylesheet" href="/portal.css" />
+    <script src="/network.js"></script>
+    <script defer src="/ui.js"></script>
+    <script defer src="/session.js"></script>
+    <script defer src="/support.js"></script>
+  </head>
+  <body>
+    <header class="portal-nav">
+      <a class="portal-brand" href="/">nexora</a>
+      <nav aria-label="Main navigation">
+        <a href="/customer.html">Your rides</a><a href="/driver.html">Driver</a
+        ><a href="/help.html">Help & safety</a>
+      </nav>
+    </header>
+    <main class="portal-shell legal-page">
+      <h1>How can we help?</h1>
+      <p>
+        Send a request and track the response here. For immediate danger,
+        contact local emergency services. This inbox is not monitored as an
+        emergency service.
+      </p>
+      <p>
+        Email: <a href="mailto:tanzeelsam@gmail.com">tanzeelsam@gmail.com</a>
+      </p>
+      <p id="support-signin" class="notice" hidden>
+        Sign in through
+        <a href="/customer.html#signin">your customer account</a> or
+        <a href="/driver.html">your driver account</a> to submit and track a
+        request.
+      </p>
+      <section id="support-account" hidden>
+        <form id="support-form" class="card">
+          <h2>New request</h2>
+          <label
+            >Topic<select name="category">
+              <option value="booking">Booking or delivery</option>
+              <option value="payment">Payment</option>
+              <option value="safety">Safety concern</option>
+              <option value="account">Account</option>
+            </select></label
+          ><label
+            >What happened?<textarea
+              name="message"
+              minlength="10"
+              maxlength="2000"
+              rows="5"
+              required
+              placeholder="Include your trip or delivery number if relevant. Never send passwords, card details, or handoff PINs."
+            ></textarea></label
+          ><button type="submit">Send request</button>
+          <p id="support-status" role="status"></p>
+        </form>
+        <div class="section-heading">
+          <h2>Your requests</h2>
+          <button type="button" id="support-refresh" class="secondary">
+            Refresh
+          </button>
+        </div>
+        <p id="support-error" role="alert"></p>
+        <div id="support-history"></div>
+      </section>
+      <footer data-site-footer></footer>
+    </main>
+  </body>
+</html>

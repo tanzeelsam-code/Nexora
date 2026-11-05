@@ -1,0 +1,26 @@
+{
+  "status": "draft_for_owner_review_not_submitted",
+  "package_name": "com.nexora.logistics",
+  "version_name": "1.0.1",
+  "version_code": 2,
+  "language": "en-US",
+  "title": "Nexora Ride & Delivery",
+  "short_description": "Request rides and deliveries, follow your journey, and manage driver jobs.",
+  "full_description": "Nexora brings rides and deliveries into one app for customers and approved drivers in Pakistan. Availability depends on nearby drivers and supported routes.\n\nFor customers\n• Choose pickup and destination, then review the fare before requesting.\n• Follow ride and package progress and check driver and vehicle details.\n• Use handoff PINs for rides and deliveries.\n• View journey history and receipts, and send support requests.\n\nFor approved drivers\n• Go online when ready to receive work.\n• Review assigned rides and deliveries and confirm each handoff.\n• View earnings and cash collection details.\n• On Android, an ongoing notification keeps the driver shift visible while location and job updates continue when you switch apps or lock the screen. Going offline or signing out stops updates.\n\nWhen the signal is weak\nRecent journey details and route drafts can remain available on your device. Saved details are marked as such. New bookings, live tracking, matching and handoff confirmations require internet and server confirmation. Nexora does not provide offline navigation maps.\n\nLocation is requested when you use a location feature. Driver notifications are optional. You can delete a customer or driver account from the app or the linked account deletion page, subject to resolving active jobs and outstanding transactions.\n\nSupport: tanzeelsam@gmail.com\nNexora support is not an emergency service.",
+  "support_email": "tanzeelsam@gmail.com",
+  "website": "https://nexora-ride-logistic.tanzeelsam.workers.dev",
+  "privacy_url": "https://nexora-ride-logistic.tanzeelsam.workers.dev/privacy.html",
+  "account_deletion_url": "https://nexora-ride-logistic.tanzeelsam.workers.dev/delete-account.html",
+  "suggested_category": "Maps & Navigation",
+  "distribution_country": "Pakistan",
+  "download_price": "Free (ride and delivery charges apply)",
+  "submission_blockers": [
+    "Owner accepts policy and export declarations in prepared Play Console form",
+    "Legal operator identity and retention rules confirmed",
+    "Approved fare card and working permanent-geocoding Mapbox credentials configured",
+    "Physical device and supervised weak-signal ride/delivery pilot completed",
+    "App access/reviewer accounts prepared without exposing production users",
+    "Data safety, target audience, content rating and foreground service declaration reviewed",
+    "Store screenshots and foreground service demo video captured from a functioning release candidate"
+  ]
+}

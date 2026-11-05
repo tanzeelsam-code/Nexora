@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#21634c" />
+    <title>Your ride · Nexora</title>
+    <link rel="stylesheet" href="/portal.css" />
+    <link rel="stylesheet" href="/customer.css" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <script
+      defer
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script defer src="/ui.js"></script>
+    <script defer src="/session.js"></script>
+    <script defer src="/notifications.js"></script>
+    <script defer src="/customer.js"></script>
+    <script defer src="/availability.js"></script>
+    <script src="/network.js"></script>
+  </head>
+  <body>
+    <main>
+      <a class="skip-link" href="#ride">Skip to booking</a>
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="/" aria-label="Nexora home"
+          >nexora<span class="brand-dot">.</span></a
+        >
+        <div class="nav-links">
+          <a href="/customer.html" aria-current="page">Book a ride</a
+          ><a href="/freight.html">Send a package</a
+          ><a href="/help.html">Help</a>
+        </div>
+        <button id="open-signin" class="secondary">Sign in</button>
+      </nav>
+      <p class="availability-banner" data-booking-availability role="status">
+        Checking booking availability…
+      </p>
+      <div class="page-intro">
+        <span class="eyebrow">LET’S GET YOU THERE</span>
+        <h1>Where are we going?</h1>
+        <p>Choose your stops, review your fare, and you’re on your way.</p>
+      </div>
+      <dialog
+        id="auth"
+        class="nexora-dialog auth-layout"
+        aria-label="Your Nexora account"
+      >
+        <button
+          type="button"
+          id="close-signin"
+          class="dialog-close"
+          aria-label="Close sign in"
+        >
+          ×
+        </button>
+        <p class="auth-context">Your journey stays here while you sign in.</p>
+        <form id="login" class="card">
+          <h2>Welcome back</h2>
+          <p>Sign in to find your next ride.</p>
+          <label
+            >Email<input
+              name="email"
+              type="email"
+              autocomplete="username"
+              required /></label
+          ><label
+            >Password<input
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required /></label
+          ><button>Sign in</button>
+          <p class="error" id="login-error" role="alert"></p>
+          <a class="recovery-link" href="/account-recovery.html"
+            >Forgot your password?</a
+          >
+        </form>
+        <details class="card">
+          <summary>New here? Create your account</summary>
+          <form id="registration">
+            <div class="grid">
+              <label
+                >First name<input
+                  name="first_name"
+                  autocomplete="given-name"
+                  required
+                  maxlength="100" /></label
+              ><label
+                >Last name<input
+                  name="last_name"
+                  autocomplete="family-name"
+                  required
+                  maxlength="100"
+              /></label>
+            </div>
+            <label
+              >Phone number<input
+                name="phone"
+                type="tel"
+                autocomplete="tel"
+                minlength="8"
+                maxlength="20"
+                required /></label
+            ><label
+              >Email<input
+                name="email"
+                type="email"
+                autocomplete="username"
+                required /></label
+            ><label
+              >Password (8–72 characters)<input
+                name="password"
+                type="password"
+                autocomplete="new-password"
+                minlength="8"
+                maxlength="72"
+                required
+            /></label>
+            <p class="form-hint">
+              Read our <a href="/privacy.html">privacy information</a> and
+              <a href="/terms.html">service terms</a> before creating an
+              account.
+            </p>
+            <button>Create account</button>
+            <p id="message" class="error" role="alert"></p>
+          </form>
+        </details>
+      </dialog>
+      <div id="account">
+        <div class="account-bar" id="account-bar" hidden>
+          <span>Hello, <strong id="name"></strong></span>
+          <div>
+            <button id="notifications" class="secondary">
+              Enable ride alerts</button
+            ><button id="logout" class="secondary">Sign out</button>
+          </div>
+        </div>
+        <p id="notification-message" role="status" class="muted"></p>
+        <ol class="booking-steps" id="ride-steps" aria-label="Booking progress">
+          <li data-step="1" aria-current="step"><span>1</span> Your route</li>
+          <li data-step="2"><span>2</span> Fare & payment</li>
+          <li data-step="3"><span>3</span> Your journey</li>
+        </ol>
+        <div class="journey-layout">
+          <div>
+            <form id="ride" class="card booking-card">
+              <span class="eyebrow">YOUR ROUTE</span>
+              <h2>Choose your stops</h2>
+              <label for="pickup-address">Pickup</label>
+              <div class="address-search">
+                <input
+                  id="pickup-address"
+                  name="pickup_address"
+                  placeholder="Street, building, or landmark"
+                  autocomplete="off"
+                  required
+                  maxlength="200"
+                /><button type="button" id="search-pickup" class="secondary">
+                  Search
+                </button>
+              </div>
+              <div
+                id="pickup-results"
+                class="place-results"
+                aria-label="Pickup search results"
+              ></div>
+              <div class="location-tools">
+                <button id="locate" type="button" class="text-button">
+                  Use my location</button
+                ><button id="pin-pickup" type="button" class="text-button">
+                  Choose on map
+                </button>
+              </div>
+              <label for="dropoff-address">Destination</label>
+              <div class="address-search">
+                <input
+                  id="dropoff-address"
+                  name="dropoff_address"
+                  placeholder="Where would you like to go?"
+                  autocomplete="off"
+                  required
+                  maxlength="200"
+                /><button type="button" id="search-dropoff" class="secondary">
+                  Search
+                </button>
+              </div>
+              <div
+                id="dropoff-results"
+                class="place-results"
+                aria-label="Destination search results"
+              ></div>
+              <button id="pin-dropoff" type="button" class="text-button">
+                Choose destination on map
+              </button>
+              <p id="location-message" role="status" class="muted">
+                Search for an address and choose a result, or place a pin on the
+                map.
+              </p>
+              <button id="estimate" class="wide">Check fare →</button>
+            </form>
+            <section
+              id="quote"
+              class="card"
+              hidden
+              aria-labelledby="quote-title"
+            >
+              <span class="eyebrow">02 · A clear fare</span>
+              <h2 id="quote-title">Your ride, ready to review</h2>
+              <strong class="fare" id="fare"></strong>
+              <p id="route-summary"></p>
+              <p id="quote-expiry" class="muted"></p>
+              <label for="payment-method">How would you like to pay?</label
+              ><select id="payment-method">
+                <option value="cash">Cash to your driver</option>
+                <option value="card" id="card-option" disabled>
+                  Card · currently unavailable
+                </option>
+              </select>
+              <p id="payment-note" class="muted">
+                Pay your driver at the end of your ride.
+              </p>
+              <div id="card-payment" hidden>
+                <div id="payment-element"></div>
+                <p class="muted">
+                  Your card is authorized now and charged after your ride.
+                  Unused holds are released.
+                </p>
+              </div>
+              <button id="confirm-booking" class="wide">Confirm ride</button>
+              <button id="edit-journey" class="text-button">
+                Change journey
+              </button>
+            </section>
+            <p id="ride-error" class="error" role="alert"></p>
+            <section
+              id="current"
+              class="card"
+              hidden
+              aria-live="polite"
+            ></section>
+          </div>
+          <aside class="map-panel">
+            <div id="journey-map" aria-label="Journey map"></div>
+            <div id="map-empty" class="map-empty">
+              <img src="/assets/route.svg" alt="" width="620" height="620" />
+              <div>
+                <span class="icon-tile"
+                  ><svg class="icon" aria-hidden="true">
+                    <use href="/assets/icons.svg#pin" /></svg
+                ></span>
+                <h2>Your route starts here.</h2>
+                <p>Choose your stops to see your journey on the map.</p>
+              </div>
+            </div>
+            <p id="map-caption">
+              Your pickup and destination will appear here.
+            </p>
+            <p class="map-attribution">
+              Address search and road routes by Mapbox.
+            </p>
+          </aside>
+        </div>
+        <section class="card" id="history-section" hidden>
+          <div class="section-heading">
+            <h2>Your journeys</h2>
+            <button id="refresh" class="secondary">Refresh</button>
+          </div>
+          <div id="history"></div>
+        </section>
+      </div>
+      <div class="booking-dock" id="ride-dock">
+        <div>
+          <small id="dock-label">Your next stop</small
+          ><strong id="dock-value">Choose your route</strong>
+        </div>
+        <button id="dock-action" type="button">Check fare →</button>
+      </div>
+      <footer data-site-footer></footer>
+    </main>
+  </body>
+</html>

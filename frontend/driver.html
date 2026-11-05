@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#21634c" />
+    <title>Your driver workspace · Nexora</title>
+
+    <link rel="stylesheet" href="/driver.css" />
+    <script src="/ui.js" defer></script>
+    <script src="/driver.js" defer></script>
+    <script src="/native-driver.js"></script>
+    <script src="/session.js"></script>
+    <script src="/notifications.js"></script>
+    <script src="/network.js"></script>
+  </head>
+  <body>
+    <header class="driver-brand">
+      <a href="/" aria-label="Nexora home"
+        >nexora<span class="brand-dot">.</span></a
+      ><a href="/help.html">Help & safety →</a>
+    </header>
+
+    <main class="mobile-frame">
+      <!-- Sign in -->
+      <div class="job-card" id="login-view" style="display: none">
+        <span class="eyebrow">YOUR DAY, YOUR WAY</span>
+        <h1>Ready for the road?</h1>
+        <p>Sign in to manage your jobs and earnings.</p>
+        <p>
+          <a href="driver-register.html">Create a driver account</a> ·
+          <a href="/">Choose another role</a>
+        </p>
+        <form id="login-form" onsubmit="login(event)">
+          <div class="input-group">
+            <label for="login-email">Email</label>
+            <input
+              type="email"
+              id="login-email"
+              autocomplete="username"
+              required
+            />
+          </div>
+          <div class="input-group">
+            <label for="login-password">Password</label>
+            <input
+              type="password"
+              id="login-password"
+              autocomplete="current-password"
+              required
+            />
+          </div>
+          <button class="btn-action" type="submit">Sign in</button>
+          <div class="error-text" id="login-error" role="alert"></div>
+          <a class="recovery-link" href="/account-recovery.html"
+            >Forgot your password?</a
+          >
+        </form>
+      </div>
+
+      <!-- Backend without a database -->
+      <div class="job-card notice" id="offline-view" style="display: none">
+        <strong>Driver app unavailable</strong>
+        <span id="offline-text"
+          >The server has no database connected, so there are no driver accounts
+          or jobs.</span
+        >
+      </div>
+
+      <div id="app-view" style="display: none">
+        <h1 class="sr-only">Driver workspace</h1>
+        <!-- Header -->
+        <div class="driver-header">
+          <div class="driver-profile">
+            <div class="driver-avatar" aria-hidden="true">
+              <svg class="icon"><use href="/assets/icons.svg#user" /></svg>
+            </div>
+            <div>
+              <h2 style="font-size: 16px; font-weight: 700" id="driver-name">
+                Driver
+              </h2>
+              <button class="link-btn" onclick="logout()">Sign out</button>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="status-toggle"
+            id="online-btn"
+            aria-pressed="false"
+            onclick="toggleOnline()"
+          >
+            Go online
+          </button>
+        </div>
+        <div
+          class="error-text"
+          id="status-error"
+          style="text-align: center"
+        ></div>
+
+        <p class="notice" id="driver-continuity">
+          Keep Nexora open while online or completing a job. This browser needs
+          the page open for location and job updates. If the signal drops, saved
+          details remain available; reconnect before confirming a pickup,
+          payment or delivery.
+        </p>
+        <p id="native-driver-status" class="notice" role="status" hidden></p>
+
+        <!-- Earnings -->
+        <div class="earnings-card">
+          <div class="earnings-title">Today's Earnings</div>
+          <div class="earnings-val" id="earnings-total">—</div>
+          <div class="earnings-stats">
+            <div>
+              Rides: <span class="stat-badge" id="earnings-trips">—</span>
+            </div>
+            <div>
+              Deliveries:
+              <span class="stat-badge" id="earnings-deliveries">—</span>
+            </div>
+            <div>
+              Rating: <span class="stat-badge" id="earnings-rating">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="job-card">
+          <div class="section-heading">
+            <strong>Your location</strong
+            ><svg class="icon" aria-hidden="true">
+              <use href="/assets/icons.svg#location" />
+            </svg>
+          </div>
+          <p>
+            Use your device location to receive nearby jobs. It updates while
+            you’re online.
+          </p>
+          <button
+            class="btn-action btn-secondary"
+            type="button"
+            id="device-location"
+          >
+            Use device location
+          </button>
+          <details class="location-details">
+            <summary>Location not working?</summary>
+            <p>
+              Allow location access in your browser settings. You can also enter
+              coordinates for your current position.
+            </p>
+            <div class="input-group">
+              <label for="location-lat">Latitude</label
+              ><input
+                id="location-lat"
+                type="number"
+                min="-90"
+                max="90"
+                step="any"
+              />
+            </div>
+            <div class="input-group">
+              <label for="location-lng">Longitude</label
+              ><input
+                id="location-lng"
+                type="number"
+                min="-180"
+                max="180"
+                step="any"
+              />
+            </div>
+            <button type="button" class="btn-action" id="update-location">
+              Update location
+            </button>
+          </details>
+          <p id="location-message" role="status"></p>
+        </div>
+        <div class="notification-controls">
+          <button class="btn-action btn-secondary" id="enable-alerts">
+            Enable job alerts
+          </button>
+          <p id="notification-status" role="status">
+            Keep this page open while online so your location stays current.
+          </p>
+        </div>
+        <section class="job-card payout-section">
+          <strong>Your card earnings</strong>
+          <p id="payout-status">Loading payout status…</p>
+          <button class="btn-action btn-secondary" id="payout-onboard" hidden>
+            Set up driver payouts
+          </button>
+        </section>
+        <div class="jobs" id="jobs"></div>
+      </div>
+    </main>
+
+    <!-- e-POD Modal -->
+    <dialog id="pod-modal" class="nexora-dialog" aria-labelledby="pod-title">
+      <div class="pod-dialog">
+        <h2 class="pod-title" id="pod-title">Confirm the handoff</h2>
+        <p>
+          Ask the recipient to check their package, then enter their delivery
+          PIN and signature.
+        </p>
+
+        <div class="input-group">
+          <label for="pod-otp">Recipient's 6-digit delivery PIN</label>
+          <input
+            type="text"
+            id="pod-otp"
+            inputmode="numeric"
+            maxlength="6"
+            autocomplete="one-time-code"
+          />
+        </div>
+
+        <div class="input-group">
+          <label for="pod-recipient">Recipient full name</label>
+          <input type="text" id="pod-recipient" maxlength="100" />
+        </div>
+
+        <div class="input-group">
+          <label for="sig-pad">Recipient signature</label>
+          <div class="sig-canvas-wrap">
+            <button class="clear-btn" type="button" onclick="clearCanvas()">
+              Clear
+            </button>
+            <canvas id="sig-pad" aria-label="Recipient signature pad"></canvas>
+          </div>
+        </div>
+        <label id="pod-cash-row" hidden
+          ><input id="pod-cash" type="checkbox" /><span
+            id="pod-cash-label"
+          ></span
+        ></label>
+        <div class="error-text" id="pod-error"></div>
+
+        <div class="btn-row">
+          <button class="btn-action btn-secondary" onclick="closePodModal()">
+            Cancel
+          </button>
+          <button class="btn-action" id="pod-submit" onclick="submitPod()">
+            Confirm dropoff
+          </button>
+        </div>
+      </div>
+    </dialog>
+    <footer class="driver-footer" data-site-footer></footer>
+  </body>
+</html>

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Delete your Nexora account</title>
+    <link rel="stylesheet" href="/brand.css" />
+    <link rel="stylesheet" href="/portal.css" />
+    <script src="/network.js"></script>
+    <script defer src="/ui.js"></script>
+    <script defer src="/session.js"></script>
+    <script defer src="/delete-account.js"></script>
+  </head>
+  <body>
+    <header class="portal-nav">
+      <a class="portal-brand" href="/">nexora</a>
+      <nav aria-label="Main navigation">
+        <a href="/help.html">Help</a><a href="/privacy.html">Privacy</a>
+      </nav>
+    </header>
+    <main class="portal-shell legal-page">
+      <h1>Delete your account</h1>
+      <p>
+        You can delete a Nexora customer or driver account here, including after
+        uninstalling the app.
+      </p>
+      <section class="card">
+        <h2>What happens</h2>
+        <p>
+          Deletion removes your sign-in, profile, saved addresses,
+          notifications, location history, and personal details from completed
+          journeys. It revokes your sessions. This cannot be undone.
+        </p>
+        <p>
+          Limited transaction records (amounts, dates and payment references)
+          and security or dispute records are retained for reconciliation and
+          fraud prevention. Payment providers may retain their own required
+          financial records.
+        </p>
+        <p>
+          Complete or cancel active journeys first. Pending card payments and
+          driver settlements must be resolved. If you cannot sign in or complete
+          deletion, email
+          <a
+            href="mailto:tanzeelsam@gmail.com?subject=Nexora%20account%20deletion"
+            >tanzeelsam@gmail.com</a
+          >
+          from your registered address with the subject “Nexora account
+          deletion”. Never send a password or PIN. Support will verify account
+          ownership before acting.
+        </p>
+      </section>
+      <form id="delete-account" class="card">
+        <h2>Confirm your identity</h2>
+        <label
+          >Email<input
+            name="email"
+            type="email"
+            autocomplete="username"
+            maxlength="254"
+            required /></label
+        ><label
+          >Current password<input
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            maxlength="72"
+            required /></label
+        ><label class="checkbox-label"
+          ><input name="confirmed" type="checkbox" required /> I understand
+          deletion is permanent.</label
+        ><button type="submit">Delete my account permanently</button>
+        <p id="delete-status" role="status" aria-live="polite"></p>
+        <a href="/account-recovery.html">Recover access to your account</a>
+      </form>
+      <footer data-site-footer></footer>
+    </main>
+  </body>
+</html>

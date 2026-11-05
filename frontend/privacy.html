@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#21634c" />
+    <title>Your information. · Nexora</title>
+    <link rel="stylesheet" href="/portal.css" />
+    <script defer src="/ui.js"></script>
+    <script defer src="/availability.js"></script>
+    <script src="/network.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Skip to content</a>
+    <main class="content-page">
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="/" aria-label="Nexora home"
+          >nexora<span class="brand-dot">.</span></a
+        >
+        <div class="nav-links">
+          <a href="/customer.html">Book a ride</a
+          ><a href="/freight.html">Send a package</a
+          ><a href="/help.html">Help</a>
+        </div>
+        <a class="nav-account" href="/customer.html#signin">Sign in</a>
+      </nav>
+      <div class="page-intro" id="content">
+        <span class="eyebrow">HERE FOR YOUR JOURNEY</span>
+        <h1>Your information.</h1>
+        <p>
+          A plain-language description of the current Nexora service. Updated 5
+          November 2026.
+        </p>
+      </div>
+      <section class="card">
+        <h2>About this notice</h2>
+        <p>
+          Nexora is preparing for public launch. This page describes the current
+          application’s data handling. The operator’s legal identity and
+          detailed transaction/security retention schedule still need to be
+          published before public bookings open.
+        </p>
+        <p data-business>
+          Business details will be published before public bookings open.
+        </p>
+        <p data-support>Privacy and support: tanzeelsam@gmail.com.</p>
+      </section>
+      <section class="card">
+        <h2>Information the service handles</h2>
+        <ul>
+          <li>
+            <strong>Accounts:</strong> names, email addresses, phone numbers,
+            password hashes and session records. Recovery codes are stored as
+            hashes.
+          </li>
+          <li>
+            <strong>Journeys:</strong> pickup and destination addresses and
+            coordinates, route details, fares, status updates, ratings and
+            payment records.
+          </li>
+          <li>
+            <strong>Deliveries:</strong> package details, sender and recipient
+            contact information, handoff PINs, recipient name, signature and
+            delivery timestamps.
+          </li>
+          <li>
+            <strong>Drivers:</strong> vehicle and onboarding details,
+            availability, earnings and location updates while using the driver
+            service.
+          </li>
+          <li>
+            <strong>Support:</strong> request messages, journey references and
+            replies visible to authorized support staff.
+          </li>
+          <li>
+            <strong>Optional notifications:</strong> a browser push subscription
+            if you enable alerts.
+          </li>
+        </ul>
+      </section>
+      <section class="card">
+        <h2>How information is used and shared</h2>
+        <p>
+          These details support account access, matching and dispatch, route
+          estimates, journey tracking, handoff verification and payment records.
+          Assigned drivers receive the job information they need. Authorized
+          operations staff can access records for service administration.
+        </p>
+        <p>
+          Configured providers process data for hosting, database storage,
+          address search and routing, notifications and card payments. The map
+          uses OpenStreetMap tiles and address search uses Mapbox when enabled.
+          Loading maps or externally hosted fonts and libraries sends ordinary
+          network request information, including your IP address, to those
+          providers. When card checkout is enabled, Stripe handles card entry
+          and payment processing.
+        </p>
+        <p>
+          A delivery tracking link provides access to delivery progress to
+          anyone who has the link. Share it only with people who need to follow
+          the delivery.
+        </p>
+      </section>
+      <section class="card">
+        <h2>On your device</h2>
+        <p>
+          Nexora uses session storage for sign-in tokens, recovery from
+          interrupted booking requests and planning forms. Route and package
+          drafts expire after 30 minutes. Recent journey details can be saved
+          for up to two hours to help during connection loss; the app marks them
+          as saved, not live. These may include addresses, contact details and
+          handoff PINs for your journey. Signing out removes these snapshots and
+          drafts. Public page layouts and scripts are cached separately, without
+          API responses or map tiles. Addresses are not placed in navigation
+          URLs.
+        </p>
+        <p>
+          Location access is requested when you choose a location action. You
+          can refuse or revoke access in your browser or Android app settings.
+          On Android, choosing Go online starts a driver shift service with an
+          ongoing notification. It sends fresh location updates and checks for
+          assigned jobs while another app is open or the screen is locked. It
+          stops when you go offline, sign out, close the app from recent apps,
+          or Android stops it. It does not start at device boot. Job alerts
+          require notification permission and internet access. In a browser,
+          keep the driver page open; web alerts depend on browser support.
+        </p>
+      </section>
+      <section class="card">
+        <h2>Access, correction and deletion</h2>
+        <p>
+          Use <a href="/delete-account.html">Delete account</a> to verify your
+          password and remove a customer or driver account. You can also request
+          deletion by emailing
+          <a
+            href="mailto:tanzeelsam@gmail.com?subject=Nexora%20account%20deletion"
+            >tanzeelsam@gmail.com</a
+          >, including if you no longer have the app. We will verify ownership
+          before acting. You do not need to create another account to request
+          deletion.
+        </p>
+        <p>
+          Self-service deletion revokes sessions, removes profile and contact
+          details, device notification subscriptions and location history, and
+          redacts your booking addresses, handoff details and support messages.
+          Active journeys and unresolved payments or settlements must be
+          resolved first; contact support if you cannot do this in the app.
+        </p>
+        <p>
+          Limited transaction records (amounts, dates, payment references and
+          non-public account identifiers) and necessary safety/security records
+          may be retained for financial reconciliation, dispute handling and
+          legal obligations. Backups and short-lived request recovery records
+          are not immediately overwritten. The operator must publish an approved
+          retention period before paid public bookings open. Email support for
+          access, correction, export or a deletion request that needs
+          assistance.
+        </p>
+      </section>
+      <footer data-site-footer></footer>
+      <section class="card">
+        <h2>Area interest and merchant deliveries</h2>
+        <p>
+          If you register interest in an area, we store your locality, email,
+          chosen service, and consent time to plan coverage and contact you
+          about availability. Ask support to remove your entry. The merchant
+          desk stores your business name, optional saved pickup, order
+          references, and goods-payment records. Drivers see the amount they
+          must collect; authorized operations staff record cash receipt and
+          merchant settlement. These records are separate from delivery fees.
+          Deleting your account removes your business profile and saved pickup.
+          Outstanding goods-payment balances must first be resolved; limited
+          transaction records remain under the retention terms above.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

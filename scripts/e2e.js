@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * NEXUS end-to-end test.
+ * NEXORA end-to-end test.
  *
  * Boots the API and drives the real ride + freight flows over HTTP and Socket.io:
  * auth, driver onboarding and approval, dispatch, the trip and delivery lifecycles,
@@ -22,7 +22,8 @@ const crypto = require('crypto');
 const PORT = Number(process.env.E2E_PORT || 3097);
 const BASE = process.env.E2E_BASE_URL || `http://localhost:${PORT}`;
 const API = `${BASE}/api/v1`;
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'e2e-admin@nexus.test';
+const WORKER = process.env.E2E_WORKER === 'true';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'e2e-admin@nexora.test';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'e2e-admin-password-123';
 const DEVICE_KEY = process.env.IOT_DEVICE_KEY || 'e2e-device-key';
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_e2e';
@@ -44,7 +45,7 @@ function check(name, condition, detail) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function http(method, url, { token, body, headers = {} } = {}) {
+async function http(method, url, { token, body, headers = {}, retry = true } = {}) {
   const res = await fetch(url, {
     method,
     headers: {
@@ -57,13 +58,17 @@ async function http(method, url, { token, body, headers = {} } = {}) {
   let json = null;
   const text = await res.text();
   try { json = JSON.parse(text); } catch { json = text; }
+  if (WORKER && retry && res.status === 429) {
+    await sleep(Math.min(60000, Math.max(1000, Number(res.headers.get('retry-after') || 1) * 1000)) + 100);
+    return http(method,url,{ token,body,headers,retry:false });
+  }
   return { status: res.status, body: json, headers: res.headers };
 }
 
 const get = (p, o) => http('GET', `${API}${p}`, o);
 const post = (p, body, o = {}) => http('POST', `${API}${p}`, { ...o, body: body ?? {} });
 
-async function waitFor(fn, { timeoutMs = 15000, intervalMs = 400 } = {}) {
+async function waitFor(fn, { timeoutMs = 15000, intervalMs = WORKER ? 1500 : 400 } = {}) {
   const start = Date.now();
   for (;;) {
     const value = await fn();
@@ -77,7 +82,7 @@ function unique() { return crypto.randomBytes(4).toString('hex'); }
 function phone() { return `+1555${String(crypto.randomInt(0, 1e7)).padStart(7, '0')}`; }
 
 async function registerCustomer(tag) {
-  const email = `cust-${tag}-${unique()}@nexus.test`;
+  const email = `cust-${tag}-${unique()}@nexora.test`;
   const res = await post('/auth/register', {
     email, phone: phone(), first_name: 'Test', last_name: 'Rider', password: 'Rider-pass-123',
   });
@@ -85,7 +90,7 @@ async function registerCustomer(tag) {
 }
 
 async function registerDriver(tag, mode = 'both') {
-  const email = `drv-${tag}-${unique()}@nexus.test`;
+  const email = `drv-${tag}-${unique()}@nexora.test`;
   const res = await post('/drivers/register', {
     email, phone: phone(), first_name: 'Test', last_name: 'Driver', password: 'Driver-pass-123', mode,
     vehicle: { plate_number: `E2E-${unique()}`.toUpperCase(), make: 'Toyota', model: 'Camry', year: 2022, color: 'Black', vehicle_type: 'sedan' },
@@ -112,6 +117,7 @@ const deliveryBody = (extra = {}) => ({
 
 // Leftover drivers from earlier runs would be matched by dispatch and make the run non-deterministic.
 async function isolateFromPreviousRuns() {
+  if (WORKER) return; // Never reset other users' data on a deployed Worker.
   const { Pool } = require('pg');
   const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
@@ -135,9 +141,9 @@ async function run() {
   let r = await get('/health');
   check('GET /health is ok', r.status === 200 && r.body.status === 'ok', r);
   r = await get('/ready');
-  check('GET /ready reports database and redis up', r.status === 200 && r.body.checks.database === 'up' && r.body.checks.redis === 'up', r.body);
+  check('GET /ready reports database and redis up', r.status === 200 && r.body.checks.database === 'up' && r.body.checks[WORKER ? 'session_store' : 'redis'] === 'up', r.body);
   r = await get('/metrics');
-  check('GET /metrics serves prometheus text', r.status === 200 && String(r.body).includes('nexus_requests_total'));
+  check('GET /metrics serves prometheus text', r.status === 200 && String(r.body).includes('nexora_requests_total'));
 
   console.log('\n── Auth ───────────────────────────────────────────');
   const cust = await registerCustomer('main');
@@ -215,7 +221,7 @@ async function run() {
   check('unapproved driver cannot go online (403)', r.status === 403 && r.body.code === 'pending_approval', r);
   r = await get('/admin/drivers?status=pending', { token: adminToken });
   check('admin sees the driver in the approval queue', r.status === 200 && r.body.drivers.some((d) => d.id === drvAId), r.body);
-  r = await post(`/admin/drivers/${drvAId}/approve`, {}, { token: adminToken });
+  r = await post(`/admin/drivers/${drvAId}/approve`, {reviewed_identity:true,reviewed_license:true,reviewed_vehicle:true}, { token: adminToken });
   check('admin approves the driver', r.status === 200, r);
   r = await post('/driver/status', { status: 'bogus' }, { token: drvAToken });
   check('invalid driver status is rejected (400)', r.status === 400, r);
@@ -266,7 +272,7 @@ async function run() {
   check('correct OTP starts the trip', r.status === 200 && r.body.status === 'in_progress', r);
   r = await post(`/trips/${trip.id}/cancel`, {}, { token: custToken });
   check('cannot cancel a trip in progress (400)', r.status === 400, r);
-  r = await post(`/driver/trips/${trip.id}/complete`, { actual_distance_km: 21.4 }, { token: drvAToken });
+  r = await post(`/driver/trips/${trip.id}/complete`, { actual_distance_km: 21.4, cash_collected: true }, { token: drvAToken });
   check('driver completes; 80/20 split computed', r.status === 200 && r.body.status === 'completed' && Math.abs(r.body.driver_earnings + r.body.platform_fee - r.body.fare) < 0.011 && r.body.platform_fee > 0, r.body);
 
   r = await post(`/trips/${trip.id}/rate`, { rating: 7 }, { token: custToken });
@@ -303,7 +309,7 @@ async function run() {
   check('declined trip returns to searching with no driver', r.body.trip.status === 'searching' && r.body.trip.driver_id === null, r.body.trip);
 
   // Bring a second driver online; the declined driver must be excluded and driver B gets the offer.
-  await post(`/admin/drivers/${drvB.body.driver.id}/approve`, {}, { token: adminToken });
+  await post(`/admin/drivers/${drvB.body.driver.id}/approve`, {reviewed_identity:true,reviewed_license:true,reviewed_vehicle:true}, { token: adminToken });
   await post('/driver/status', { status: 'available' }, { token: drvB.body.token });
   await post('/driver/location', { lat: 40.7590, lng: -73.9860 }, { token: drvB.body.token });
   const reoffered = await waitFor(async () => {
@@ -315,16 +321,17 @@ async function run() {
   // Driver B ignores the offer: the sweeper must time it out and release the driver.
   const timedOut = await waitFor(async () => {
     const t = await get(`/trips/${trip2.id}`, { token: cust2.body.token });
-    return t.body.trip?.status === 'searching' && t.body.trip.driver_id === null;
-  }, { timeoutMs: 20000 });
-  check('an unanswered offer times out and the trip is re-queued', !!timedOut, (await get(`/trips/${trip2.id}`, { token: cust2.body.token })).body.trip?.status);
+    return (WORKER ? ['searching','failed'].includes(t.body.trip?.status) : t.body.trip?.status === 'searching') && t.body.trip.driver_id === null;
+  }, { timeoutMs: WORKER ? 60000 : 20000 });
+  check('an unanswered offer times out and releases its driver', !!timedOut, (await get(`/trips/${trip2.id}`, { token: cust2.body.token })).body.trip?.status);
+  const expired = WORKER && (await get(`/trips/${trip2.id}`, { token:cust2.body.token })).body.trip?.status === 'failed';
   r = await post(`/trips/${trip2.id}/cancel`, { reason: 'changed my mind' }, { token: cust2.body.token });
-  check('rider cancels while searching (no fee)', r.status === 200 && r.body.cancellation_fee === 0, r);
+  check(expired ? 'an expired booking stays final' : 'rider cancels while searching (no fee)', expired ? r.status === 400 : r.status === 200 && r.body.cancellation_fee === 0, r);
 
   const cust3 = await registerCustomer('three');
   r = await post('/trips', { ...tripBody(), pickup_lat: -33.86, pickup_lng: 151.2, dropoff_lat: -33.9, dropoff_lng: 151.25 }, { token: cust3.body.token });
   const far = r.body.trip;
-  const failedTrip = await waitFor(async () => (await get(`/trips/${far.id}`, { token: cust3.body.token })).body.trip?.status === 'failed', { timeoutMs: 40000 });
+  const failedTrip = await waitFor(async () => (await get(`/trips/${far.id}`, { token: cust3.body.token })).body.trip?.status === 'failed', { timeoutMs: WORKER ? 90000 : 40000 });
   check('with no driver in range the trip fails cleanly after the dispatch timeout', !!failedTrip);
 
   console.log('\n── Freight: delivery lifecycle ────────────────────');
@@ -356,10 +363,19 @@ async function run() {
   check('public tracking never leaks OTPs', !JSON.stringify(r.body).match(/otp/i));
   r = await get('/track/' + 'f'.repeat(24));
   check('unknown tracking slug -> 404', r.status === 404);
+  r = await get(`/track/${del.delivery_number}`);
+  check('guessable delivery number does not open public tracking (404)', r.status === 404, r.status);
+  r = await get(`/track/${slug}/temperature-report`);
+  check('temperature report is refused for a non-refrigerated delivery (404)', r.status === 404, r.status);
   r = await post(`/driver/deliveries/${del.id}/deliver`, { otp: del.pickup_otp }, { token: drvAToken });
   check('drop-off requires the drop-off OTP, not the pickup OTP (403)', r.status === 403, r);
-  r = await post(`/driver/deliveries/${del.id}/deliver`, { otp: del.dropoff_otp }, { token: drvAToken });
-  check('delivery is completed with earnings', r.status === 200 && r.body.status === 'delivered' && r.body.driver_earnings > 0, r);
+  r = await post(`/driver/deliveries/${del.id}/deliver`, { otp: del.dropoff_otp, pod_signature: 'javascript:alert(1)' }, { token: drvAToken });
+  check('a signature that is not a PNG data URL is rejected (400)', r.status === 400, r);
+  const signaturePng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  r = await post(`/driver/deliveries/${del.id}/deliver`, { otp: del.dropoff_otp, recipient_name: 'Dana Reyes', pod_signature: signaturePng, cash_collected: true }, { token: drvAToken });
+  check('delivery is completed with earnings and proof of delivery', r.status === 200 && r.body.status === 'delivered' && r.body.driver_earnings > 0 && r.body.pod.signature_captured && r.body.pod.recipient_name === 'Dana Reyes', r);
+  r = await get(`/track/${slug}`);
+  check('public tracking shows delivery with signature captured, without exposing it', r.body.delivery.status === 'delivered' && r.body.delivery.signature_captured === true && !JSON.stringify(r.body).includes('base64'), r.body.delivery);
   r = await get(`/deliveries/${del.id}`, { token: custToken });
   check('customer sees the delivered status and keeps their OTPs', r.status === 200 && r.body.delivery.status === 'delivered' && r.body.delivery.dropoff_otp, r.body);
 
@@ -373,6 +389,8 @@ async function run() {
   check('in-range reading is logged, no alert', r.status === 200 && r.body.is_excursion === false, r);
   r = await post('/cold-chain/telemetry', { delivery_id: cold.delivery_number, temperature_c: 14.2, battery_pct: 70 }, { headers: { 'x-device-key': DEVICE_KEY } });
   check('out-of-range reading raises a critical alert', r.status === 200 && r.body.is_excursion && r.body.severity === 'critical', r);
+  r = await get(`/track/${cold.tracking_url.split('/').pop()}/temperature-report`);
+  check('temperature report reflects the recorded excursion', r.status === 200 && r.body.verdict === 'OUT_OF_RANGE_NOW' && r.body.temperature.excursion_readings === 1 && r.body.temperature.current_c === 14.2, r.body);
   r = await post('/cold-chain/telemetry', { delivery_id: cold.delivery_number, temperature_c: 4 }, { headers: { 'x-device-key': 'wrong' } });
   check('wrong device key is rejected', r.status === 401, r);
   r = await post('/cold-chain/telemetry', { delivery_id: 'DEL-DOES-NOT-EXIST', temperature_c: 4 }, { token: adminToken });
@@ -409,6 +427,18 @@ async function run() {
   r = await http('POST', `${API}/webhooks/stripe`, { body: payload });
   check('missing signature is rejected (400)', r.status === 400, r);
 
+  if (WORKER) {
+    r = await get('/events');
+    check('anonymous cannot read events', r.status === 401);
+    r = await get('/events', { token: custToken });
+    check('rider receives their completed trip events', r.status === 200 && ['trip:driver_offered','trip:driver_en_route','trip:driver_arrived','trip:started','trip:completed'].every(name => r.body.events.some(e => e.event === name)), r.body.events?.map(e => e.event));
+    check('rider cannot receive operations events', !r.body.events?.some(e => e.event === 'fleet:rebalanced'));
+    const cursor = r.body.cursor;
+    r = await get(`/events?after=${cursor}`, { token: custToken });
+    check('event cursor excludes previously delivered events', r.status === 200 && r.body.events.every(event => BigInt(event.id) > BigInt(cursor)), { status: r.status, count: r.body.events?.length });
+    r = await get('/events', { token: adminToken });
+    check('admin receives authorized operations events', r.status === 200 && r.body.events.some(e => e.event === 'fleet:rebalanced'));
+  } else {
   console.log('\n── Realtime (Socket.io) ───────────────────────────');
   const { io: ioClient } = require('socket.io-client');
   const connect = () => new Promise((resolve, reject) => {
@@ -463,18 +493,22 @@ async function run() {
   check('driver socket receives the new trip request', offer && offer.trip_id === liveTrip.id, offer);
   const ack = (ev, payload) => new Promise((resolve) => drvSock.emit(ev, payload, resolve));
   check('socket accept goes through the state machine', (await ack('trip:accept', { tripId: liveTrip.id })).code === 200);
-  check('socket cannot skip straight to complete', (await ack('trip:complete', { tripId: liveTrip.id })).code === 409);
+  check('socket cannot skip straight to complete', (await ack('trip:complete', { cash_collected: true, tripId: liveTrip.id })).code === 409);
   await ack('trip:arrive', { tripId: liveTrip.id });
   await ack('trip:start', { tripId: liveTrip.id, otp: liveTrip.pickup_otp });
-  await ack('trip:complete', { tripId: liveTrip.id, actual_distance_km: 20 });
+  await ack('trip:complete', { cash_collected: true, tripId: liveTrip.id, actual_distance_km: 20 });
   await sleep(500);
   check('rider receives the full event sequence', ['trip:driver_offered', 'trip:driver_en_route', 'trip:driver_arrived', 'trip:started', 'trip:completed'].every((e) => events.includes(e)), events);
+  const disconnected = once(rider, 'disconnect');
+  r = await post('/auth/logout', {}, { token: custToken });
+  check('logout disconnects the matching realtime session', r.status === 200 && !!(await disconnected));
   rider.close();
   drvSock.close();
 
   console.log('\n── Metrics ────────────────────────────────────────');
   r = await get('/metrics');
-  check('metrics count requests and auth failures', /nexus_requests_total [1-9]/.test(r.body) && /nexus_auth_failures_total [1-9]/.test(r.body));
+  check('metrics count requests and auth failures', /nexora_requests_total [1-9]/.test(r.body) && /nexora_auth_failures_total [1-9]/.test(r.body));
+  }
 }
 
 async function main() {

@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">NEXUS Logistics</string>
+    <string name="app_name">Nexora</string>
+    <string name="retry">Try again</string>
+    <string name="link_unavailable">No app is available to open this link.</string>
+    <string name="shift_channel">Driver location updates</string>
+    <string name="jobs_channel">Driver jobs</string>
+    <string name="shift_starting">Starting driver updates…</string>
+    <string name="shift_start_failed">Background updates could not start. Open Nexora and try again.</string>
+    <string name="shift_connected">Driver updates active. Open Nexora to go offline.</string>
+    <string name="shift_waiting_gps">Waiting for a current GPS location. Check location settings.</string>
+    <string name="shift_permission_lost">Location permission was removed. Background updates stopped.</string>
+    <string name="shift_signin">Driver session ended. Open Nexora and sign in.</string>
+    <string name="shift_connection_lost">Connection interrupted. Job and location updates need a signal.</string>
+    <string name="shift_job_updated">A driver job was updated. Open Nexora to review it.</string>
+    <string name="connection_unavailable">Connection unavailable\n\nConnect to the internet to open Nexora. Once loaded, saved pages and recent journey details can remain available during a connection loss. New bookings and driver actions need confirmation from Nexora.</string>
 </resources>

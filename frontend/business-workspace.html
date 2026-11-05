@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Areas & COD · Nexora</title>
+    <link rel="stylesheet" href="/workspace.css" />
+    <link rel="stylesheet" href="/business.css" />
+    <script src="/network.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <aside id="sidebar" class="sidebar"></aside>
+    <button
+      class="mobile-scrim"
+      data-menu="close"
+      aria-label="Close navigation"
+    ></button>
+    <div class="workspace">
+      <header class="topbar">
+        <div class="breadcrumb">
+          <button
+            class="icon-button subtle mobile-menu"
+            data-menu="toggle"
+            aria-label="Open navigation"
+            aria-expanded="false"
+            aria-controls="sidebar"
+          >
+            <span data-icon="menu"></span></button
+          ><span>Workspace / Areas & COD</span>
+        </div>
+        <div class="topbar-right">
+          <time id="today"></time
+          ><button class="header-signout" data-signout>Sign out</button>
+        </div>
+      </header>
+      <main class="content business-page" id="main">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">LOCAL OPERATIONS</p>
+            <h1>Areas & cash collection</h1>
+            <p>Publish coverage and reconcile merchant goods payments.</p>
+          </div>
+          <button id="business-refresh">Refresh</button>
+        </div>
+        <p id="business-error" class="error" role="alert"></p>
+        <section class="card">
+          <div class="order-heading">
+            <h2>Service areas</h2>
+            <button id="add-area" hidden>Add service area</button>
+          </div>
+          <p class="help-copy" id="area-timezone"></p>
+          <p class="help-copy">
+            An active area allows both stops within its radius during its
+            opening hours. Maps and approved fares must also be ready. Driver
+            availability is checked separately.
+          </p>
+          <div id="workspace-areas"></div>
+        </section>
+        <details class="card" style="margin: 20px 0">
+          <summary>Interest by locality</summary>
+          <div id="area-demand"></div>
+        </details>
+        <section>
+          <h2>Merchant COD awaiting reconciliation</h2>
+          <p class="help-copy">
+            Record goods cash received from a driver, then a completed payment
+            to the merchant. Enter the receipt or transfer reference. These
+            actions record an external payment; they do not move money. Delivery
+            fees are excluded.
+          </p>
+          <div id="workspace-cod"></div>
+          <div class="desk-pagination">
+            <button id="cod-prev">Previous</button><span id="cod-page"></span
+            ><button id="cod-next">Next</button>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/workspace.js"></script>
+    <script src="/business-workspace.js"></script>
+  </body>
+</html>
