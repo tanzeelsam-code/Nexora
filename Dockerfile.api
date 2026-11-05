@@ -14,6 +14,7 @@ COPY --chown=nexora:nexora services ./services
 COPY --chown=nexora:nexora supabase/migrations/20261019085513_booking_payments_notifications.sql ./supabase/migrations/
 COPY --chown=nexora:nexora supabase/migrations/20261024093153_release_recovery_cash_billing.sql ./supabase/migrations/
 COPY --chown=nexora:nexora supabase/migrations/20261024093804_durable_delivery_requests.sql ./supabase/migrations/
+COPY --chown=nexora:nexora supabase/migrations/20261105154028_area_availability_merchant_cod.sql ./supabase/migrations/
 COPY --chown=nexora:nexora frontend ./frontend
 EXPOSE 3000
 # Run as non-root user

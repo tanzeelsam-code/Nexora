@@ -27,6 +27,8 @@
     step = 1,
     bookingComplete = false,
     afterSignIn;
+  let merchantProfile = null;
+  let repeatLoaded = false;
   const points = { pickup: null, dropoff: null },
     searchVersion = { pickup: 0, dropoff: 0 };
   const session = NexoraSession("nexora_customer", signedOut);
@@ -54,6 +56,10 @@
       dropoff: $("dropoff-address").value,
     });
   function signedOut() {
+    merchantProfile = null;
+    $("use-merchant-pickup").hidden = true;
+    $("save-merchant-pickup").hidden = true;
+    $("merchant-pickup-status").textContent = "";
     clearInterval(timer);
     bookingComplete = false;
     document.querySelector(".freight-layout").hidden = false;
@@ -226,6 +232,10 @@
         throw new Error("Search and select both addresses first.");
       }
       const body = Object.fromEntries(new FormData($("delivery")));
+      body.cod_amount = Number(body.cod_amount || 0);
+      if (!body.merchant_order_ref?.trim()) delete body.merchant_order_ref;
+      if (body.cod_amount > 0 && !body.merchant_order_ref)
+        throw new Error("Enter an order reference for goods cash collection.");
       body.cargo_weight_kg = Number(body.cargo_weight_kg);
       body.is_fragile = $("delivery").elements.is_fragile.checked;
       for (const kind of ["pickup", "dropoff"]) {
@@ -241,8 +251,15 @@
       const price = quote.price_estimate;
       $("fare").textContent = money(price.total_fare, price.currency);
       $("quote-detail").textContent =
-        `Quote valid until ${new Date(quote.expires_at).toLocaleTimeString()}. Cash paid by the recipient.`;
+        `Quote valid until ${new Date(quote.expires_at).toLocaleTimeString()}. Recipient pays ${money(Number(price.total_fare) + body.cod_amount, price.currency)} in cash: delivery fee plus goods payment.`;
       const fields = [
+        ["Order reference", body.merchant_order_ref || "Personal delivery"],
+        ["Goods cash to collect", money(body.cod_amount, price.currency)],
+        ["Delivery fee", money(price.total_fare, price.currency)],
+        [
+          "Total cash from recipient",
+          money(Number(price.total_fare) + body.cod_amount, price.currency),
+        ],
         ["Pickup", body.pickup_address],
         ["Destination", body.dropoff_address],
         [
@@ -340,7 +357,7 @@
               const track = /^[a-f0-9]{24}$/.test(slug)
                 ? `<a class="button secondary" href="/track/${slug}">Track delivery →</a>`
                 : "";
-              return `<article class="history-card"><span class="trip-status">${esc(labels[d.status] || d.status.replace(/_/g, " "))}</span><div class="section-heading"><h3>${esc(d.delivery_number)}</h3><strong>${money(d.total_fare, d.currency)}</strong></div><div class="history-route"><div><small>FROM</small>${esc(d.pickup_address)}</div><div><small>TO</small>${esc(d.dropoff_address)}</div></div><p>${d.payment_status === "captured" ? "Paid in cash · Receipt " + esc("PAY-" + d.delivery_number) : active ? "Cash due from recipient on delivery" : "Payment status: " + esc(d.payment_status)}</p>${active ? `<dl class="ride-details"><div><dt>Pickup PIN</dt><dd>${esc(d.pickup_otp)}</dd></div><div><dt>Delivery PIN</dt><dd>${esc(d.dropoff_otp)}</dd></div></dl><p>Share each PIN only at its handoff.</p>` : ""}${d.dropoff_recipient_name ? `<p>Received by ${esc(d.dropoff_recipient_name)} on ${esc(new Date(d.delivered_at).toLocaleString())}</p>` : ""}${track}${["pending", "pickup_scheduled"].includes(d.status) ? ` <button type="button" class="text-button" data-cancel="${esc(d.id)}">Cancel delivery</button>` : ""}</article>`;
+              return `<article class="history-card"><span class="trip-status">${esc(labels[d.status] || d.status.replace(/_/g, " "))}</span><div class="section-heading"><h3>${esc(d.delivery_number)}</h3><strong>${money(d.total_fare, d.currency)}</strong></div><div class="history-route"><div><small>FROM</small>${esc(d.pickup_address)}</div><div><small>TO</small>${esc(d.dropoff_address)}</div></div><p>${d.payment_status === "captured" ? "Paid in cash · Receipt " + esc("PAY-" + d.delivery_number) : active ? "Cash due from recipient on delivery" : "Payment status: " + esc(d.payment_status)}</p>${Number(d.cod_amount) > 0 ? `<p>Goods payment: ${esc(money(d.cod_amount, d.currency))} · ${d.cod_settled_at ? "Settled to merchant" : d.cod_received_at ? "Awaiting merchant settlement" : d.cod_collected_at ? "Collected by driver" : "Not collected"}. <a href="/merchant.html">Merchant desk</a></p>` : ""}${active ? `<dl class="ride-details"><div><dt>Pickup PIN</dt><dd>${esc(d.pickup_otp)}</dd></div><div><dt>Delivery PIN</dt><dd>${esc(d.dropoff_otp)}</dd></div></dl><p>Share each PIN only at its handoff.</p>` : ""}${d.dropoff_recipient_name ? `<p>Received by ${esc(d.dropoff_recipient_name)} on ${esc(new Date(d.delivered_at).toLocaleString())}</p>` : ""}${track}${["pending", "pickup_scheduled"].includes(d.status) ? ` <button type="button" class="text-button" data-cancel="${esc(d.id)}">Cancel delivery</button>` : ""}</article>`;
             })
             .join("")
         : '<div class="empty-history"><h3>Your first delivery starts here.</h3><p>Once you book, tracking updates and receipts will appear in this space.</p></div>';
@@ -391,6 +408,8 @@
     try {
       const config = await request("/config");
       available = !!config.booking_available;
+      $("cod-currency").textContent =
+        `Goods amount in ${config.currency || "PKR"}. Enter 0 if already paid. Delivery fees are separate.`;
     } catch {
       available = false;
     }
@@ -403,6 +422,7 @@
     $("open-signin").hidden = true;
     $("name").textContent = session.get("name") || "there";
     await loadConfig();
+    await loadMerchant();
     await history();
     clearInterval(timer);
     timer = setInterval(() => {
@@ -445,6 +465,93 @@
     if (session.get("token")) start();
     else loadConfig();
   });
+  async function loadMerchant() {
+    const current = version;
+    try {
+      const { profile } = await request("/merchant/profile");
+      if (current !== version) return;
+      merchantProfile = profile;
+      $("use-merchant-pickup").hidden = !profile?.pickup_address;
+      $("save-merchant-pickup").hidden = !profile;
+      const repeat = new URLSearchParams(location.search).get("repeat");
+      if (repeat && !repeatLoaded && /^[a-f0-9-]{36}$/i.test(repeat)) {
+        const result = await request("/deliveries/" + repeat);
+        if (current !== version) return;
+        const d = result.delivery;
+        if (!d) return;
+        repeatLoaded = true;
+        for (const kind of ["pickup", "dropoff"]) {
+          points[kind] = {
+            address: d[kind + "_address"],
+            lat: Number(d[kind + "_lat"]),
+            lng: Number(d[kind + "_lng"]),
+          };
+          $(kind + "-address").value = points[kind].address;
+          for (const field of ["contact_name", "contact_phone"])
+            $("delivery").elements[kind + "_" + field].value =
+              d[kind + "_" + field] || "";
+        }
+        for (const field of [
+          "cargo_description",
+          "cargo_weight_kg",
+          "cod_amount",
+        ])
+          $("delivery").elements[field].value =
+            d[field] || (field === "cod_amount" ? 0 : "");
+        $("delivery").elements.is_fragile.checked = !!d.is_fragile;
+        $("delivery").elements.merchant_order_ref.value = "";
+        $("business-delivery-fields").open = true;
+        invalidate();
+        summary();
+        $("delivery-error").textContent =
+          "Previous details loaded. Check the contacts and goods amount, and enter a new order reference.";
+      }
+    } catch (error) {
+      if (
+        current === version &&
+        new URLSearchParams(location.search).has("repeat")
+      )
+        $("delivery-error").textContent = error.message;
+    }
+  }
+  $("use-merchant-pickup").onclick = () => {
+    if (!merchantProfile?.pickup_address) return;
+    points.pickup = {
+      address: merchantProfile.pickup_address,
+      lat: Number(merchantProfile.pickup_lat),
+      lng: Number(merchantProfile.pickup_lng),
+    };
+    $("pickup-address").value = points.pickup.address;
+    for (const field of ["pickup_contact_name", "pickup_contact_phone"])
+      $("delivery").elements[field].value = merchantProfile[field];
+    searchVersion.pickup++;
+    $("pickup-results").replaceChildren();
+    invalidate();
+    summary();
+  };
+  $("save-merchant-pickup").onclick = () =>
+    task($("save-merchant-pickup"), "merchant-pickup-status", async () => {
+      if (!points.pickup || !merchantProfile)
+        throw new Error(
+          "Select a pickup address and create a business profile first.",
+        );
+      const pickup = {
+        pickup_address: points.pickup.address,
+        pickup_lat: points.pickup.lat,
+        pickup_lng: points.pickup.lng,
+        pickup_contact_name: $("delivery").elements.pickup_contact_name.value,
+        pickup_contact_phone: $("delivery").elements.pickup_contact_phone.value,
+      };
+      const result = await request("/merchant/profile", {
+        business_name: merchantProfile.business_name,
+        pickup,
+      });
+      merchantProfile = result.profile;
+      $("use-merchant-pickup").hidden = false;
+      $("merchant-pickup-status").textContent = "Business pickup saved.";
+    });
+  if (new URLSearchParams(location.search).has("business"))
+    $("business-delivery-fields").open = true;
   const saved = NexoraUI.drafts.take("delivery");
   if (saved) {
     $("pickup-address").value = saved.pickup;

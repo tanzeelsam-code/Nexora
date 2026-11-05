@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#21634c" />
+    <title>Merchant delivery desk · Nexora</title>
+    <link rel="stylesheet" href="/portal.css" />
+    <link rel="stylesheet" href="/business.css" />
+    <script src="/network.js"></script>
+    <script defer src="/ui.js"></script>
+    <script defer src="/session.js"></script>
+    <script defer src="/merchant.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to desk</a>
+    <main class="business-page" id="main">
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="/">nexora.</a>
+        <div class="nav-links">
+          <a href="/freight.html">Send a package</a
+          ><a href="/areas.html">Service areas</a
+          ><a href="/support.html">Support</a>
+        </div>
+        <button id="merchant-logout" class="secondary" hidden>Sign out</button>
+      </nav>
+      <div class="page-intro">
+        <span class="eyebrow">YOUR BUSINESS, ON THE MOVE</span>
+        <h1>Merchant delivery desk.</h1>
+        <p>
+          Follow your orders and every step of your cash on delivery payments.
+        </p>
+      </div>
+      <section id="merchant-auth" class="card">
+        <h2>Sign in with your customer account</h2>
+        <form id="merchant-login" class="business-form">
+          <label
+            >Email<input
+              name="email"
+              type="email"
+              autocomplete="username"
+              required /></label
+          ><label
+            >Password<input
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required /></label
+          ><button>Sign in</button>
+          <p id="login-error" class="error full" role="alert"></p>
+        </form>
+        <p>
+          <a href="/customer.html#register">Create a customer account</a> ·
+          <a href="/account-recovery.html">Recover account</a>
+        </p>
+      </section>
+      <div id="merchant-desk" hidden>
+        <section class="card">
+          <h2 id="business-title">Set up your business</h2>
+          <form id="merchant-profile" class="desk-toolbar">
+            <label
+              >Business name<input
+                name="business_name"
+                minlength="2"
+                maxlength="150"
+                required /></label
+            ><button>Save business profile</button>
+          </form>
+          <p id="profile-status" role="status"></p>
+          <p id="saved-pickup" class="help-copy"></p>
+          <a
+            id="new-order"
+            class="button"
+            href="/freight.html?business=1"
+            hidden
+            >New business delivery →</a
+          >
+        </section>
+        <div
+          id="merchant-balances"
+          class="desk-grid"
+          aria-label="Goods payment balances"
+        ></div>
+        <p class="help-copy">
+          Goods payments are separate from delivery fees. “With drivers” means
+          collected from recipients; “Awaiting settlement” means received by
+          operations. Settlements record payments made outside Nexora.
+        </p>
+        <form id="merchant-filter" class="desk-toolbar">
+          <label
+            >Find an order<input
+              name="q"
+              maxlength="100"
+              placeholder="Order or delivery reference" /></label
+          ><label
+            >Show<select name="status">
+              <option value="all">All business deliveries</option>
+              <option value="active">Active deliveries</option>
+              <option value="with_drivers">COD with drivers</option>
+              <option value="awaiting_settlement">Awaiting settlement</option>
+              <option value="settled">Settled</option>
+            </select></label
+          ><button>Search / refresh</button>
+        </form>
+        <p id="desk-error" class="error" role="alert"></p>
+        <div id="merchant-orders"></div>
+        <div class="desk-pagination">
+          <button id="previous-page" class="secondary">Previous</button
+          ><span id="page-number"></span
+          ><button id="next-page" class="secondary">Next</button>
+        </div>
+      </div>
+      <p>
+        <a href="/help.html">Help</a> · <a href="/privacy.html">Privacy</a> ·
+        <a href="/delete-account.html">Delete account</a>
+      </p>
+    </main>
+  </body>
+</html>

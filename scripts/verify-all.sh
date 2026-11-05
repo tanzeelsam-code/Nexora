@@ -30,6 +30,11 @@ node --check frontend/driver.js
 node --check frontend/customer.js
 node --check frontend/freight.js
 node --check frontend/availability.js
+node --check frontend/areas.js
+node --check frontend/merchant.js
+node --check frontend/business-workspace.js
+node --check services/areas.cjs
+node --check services/merchants.cjs
 node --check frontend/account-recovery.js
 node --check services/recovery.cjs
 node --check frontend/session.js
@@ -39,7 +44,7 @@ node --check services/maps.cjs
 node --check services/jobs.cjs
 node --check services/payments.cjs
 node --check services/notifications.cjs
-node --test scripts/market.test.cjs scripts/connectivity.test.cjs scripts/native-driver.test.cjs scripts/booking-ui.test.cjs scripts/workspace-session.test.cjs scripts/tracking.test.cjs scripts/integrations.test.cjs scripts/customer-session.test.cjs
+node --test scripts/business.test.cjs scripts/market.test.cjs scripts/connectivity.test.cjs scripts/native-driver.test.cjs scripts/booking-ui.test.cjs scripts/workspace-session.test.cjs scripts/tracking.test.cjs scripts/integrations.test.cjs scripts/customer-session.test.cjs
 python3 -m py_compile ai_engine.py
 echo "   ✅ Code syntax validation passed."
 

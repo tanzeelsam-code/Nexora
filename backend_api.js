@@ -30,6 +30,8 @@ const { registerRecovery } = require('./services/recovery.cjs');
 const { createMarket } = require('./services/market.cjs');
 const { registerAccount } = require('./services/account.cjs');
 const { registerSupport } = require('./services/support.cjs');
+const { registerAreas } = require('./services/areas.cjs');
+const { registerMerchants, moneySchema } = require('./services/merchants.cjs');
 
 // ============================================================
 // CONFIGURATION
@@ -40,6 +42,7 @@ const bcrypt = runtime.passwords || defaultPasswords;
 const environment = runtime.env || process.env;
 const isProduction = environment.NODE_ENV === 'production';
 const market = createMarket(environment);
+const areasRequired = environment.SERVICE_AREAS_REQUIRED === 'true' || isProduction;
 
 function getEnv(name, fallback) {
   const value = environment[name];
@@ -915,6 +918,8 @@ const schemas = {
   }),
   
   requestDelivery: z.object({
+    merchant_order_ref: z.string().trim().min(1).max(80).optional(),
+    cod_amount: moneySchema.default(0),
     pickup_lat: z.number().min(-90).max(90),
     pickup_lng: z.number().min(-180).max(180),
     pickup_address: z.string().min(1).max(500),
@@ -1571,6 +1576,7 @@ async function driverTripAction(driver, tripId, action, body = {}) {
 
 app.post('/api/v1/trips/estimate', async (req, reply) => {
   const body = validate(schemas.requestRide, req.body);
+  await areas.assertRoute(body, 'ride');
   if (body.scheduled_for) throw unavailable('Scheduled rides are not available yet. Please request when you are ready.', 400);
   const pricing = await AI.price(body);
   const token = app.jwt.sign({ type: 'ride_quote', jti: uuidv4(), fingerprint: bookingFingerprint(body), pricing }, { expiresIn: '5m' });
@@ -1586,6 +1592,7 @@ app.post('/api/v1/trips', { preHandler: [authenticate, requireDatabase, idempote
   const tripNumber = `TRP-${Date.now()}-${randomDigits(3)}`;
 
   if (req.user.role !== 'customer') return reply.code(403).send({ error: 'Customer account required' });
+  await areas.assertRoute(body, 'ride');
   if (body.scheduled_for) throw unavailable('Scheduled rides are not available yet. Please request when you are ready.', 400);
   const quote = body.quote_token ? readQuote(body.quote_token, body) : null;
   const pricing = quote?.pricing || await AI.price(body);
@@ -1907,6 +1914,7 @@ async function driverDeliveryAction(driver, deliveryId, action, body = {}) {
     const pod = schemas.proofOfDelivery.safeParse(body);
     if (!pod.success) return { code: 400, body: { error: 'Invalid proof of delivery', details: pod.error.issues.map(i => i.message) } };
     if (d.payment_method === 'cash' && body.cash_collected !== true) return { code: 400, body: { error: 'Confirm cash collection before completing this delivery.' } };
+    if (Number(d.cod_amount) > 0 && (!moneySchema.safeParse(body.cod_collected_amount).success || Math.round(body.cod_collected_amount * 100) !== Math.round(Number(d.cod_amount) * 100))) return {code:400,body:{error:'Confirm the exact goods payment as well as the delivery fee.'}};
     if (!pod.data.recipient_name || !pod.data.pod_signature) return { code: 400, body: { error: 'Recipient name and signature are required.' } };
     const podSignature = pod.data.pod_signature || null;
     const podPhotoUrl = pod.data.pod_photo_url || null;
@@ -1926,6 +1934,10 @@ async function driverDeliveryAction(driver, deliveryId, action, body = {}) {
         WHERE id = $3 AND status IN ('in_transit','out_for_delivery')
       `, [platformFee, driverEarnings, d.id, podSignature, podPhotoUrl, podRecipientName]);
       if (rowCount !== 1) return false;
+      if (Number(d.cod_amount) > 0) {
+        await client.query('UPDATE deliveries SET cod_collected_at=NOW() WHERE id=$1',[d.id]);
+        await client.query("INSERT INTO cod_events(delivery_id,kind,amount,currency,actor_id) VALUES($1,'collected',$2,$3,$4)",[d.id,d.cod_amount,d.currency,driver.user_id]);
+      }
       if (d.payment_method === 'cash') await client.query(`
         INSERT INTO payments(payment_ref,delivery_id,customer_id,amount,currency,method,status,gateway,captured_at)
         VALUES($1,$2,$3,$4,$5,'cash','captured','cash',NOW())`,
@@ -1978,6 +1990,8 @@ async function deliveryPrice(body) {
 }
 app.post('/api/v1/deliveries/estimate', { preHandler: [authenticate, requireRole('customer')] }, async req => {
   const body = validate(schemas.requestDelivery, req.body);
+  await areas.assertRoute(body, 'delivery');
+  await merchants.requireMerchant(req.user.id,body);
   validateDeliveryAvailability(body);
   const pricing = await deliveryPrice(body);
   const quote_token = app.jwt.sign({ type: 'delivery_quote', fingerprint: deliveryFingerprint(body), pricing }, { expiresIn: '5m' });
@@ -1986,7 +2000,7 @@ app.post('/api/v1/deliveries/estimate', { preHandler: [authenticate, requireRole
 app.get('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, requireRole('customer')] }, async req => {
   const { rows } = await query(`SELECT id,delivery_number,status,pickup_address,dropoff_address,total_fare,currency,
     payment_method,payment_status,tracking_url,requested_at,delivered_at,dropoff_recipient_name,
-    pickup_otp,dropoff_otp FROM deliveries WHERE customer_id=$1 ORDER BY requested_at DESC LIMIT 50`, [req.user.id]);
+    pickup_otp,dropoff_otp,merchant_order_ref,cod_amount,cod_collected_at,cod_received_at,cod_settled_at FROM deliveries WHERE customer_id=$1 ORDER BY requested_at DESC LIMIT 50`, [req.user.id]);
   return { deliveries: rows };
 });
 
@@ -1995,6 +2009,7 @@ function deliveryCreatedResponse(delivery) {
     id: delivery.id, delivery_number: delivery.delivery_number, status: delivery.status,
     tracking_url: delivery.tracking_url, total_fare: delivery.total_fare,
     insurance_premium: Number(delivery.insurance_premium), pickup_otp: delivery.pickup_otp, dropoff_otp: delivery.dropoff_otp,
+    cod_amount: Number(delivery.cod_amount), merchant_order_ref:delivery.merchant_order_ref,
   }, message: 'Delivery requested. Follow its status in your delivery history.' };
 }
 
@@ -2013,6 +2028,8 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
   }
   const existing = await replayExisting();
   if (existing) return reply.code(201).send(deliveryCreatedResponse(existing));
+  await areas.assertRoute(body, 'delivery');
+  await merchants.requireMerchant(req.user.id,body);
   market.requireRates();
   validateDeliveryAvailability(body);
   const deliveryId = uuidv4();
@@ -2040,6 +2057,7 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
   delivery = await transaction(async client => {
     const {rows:[account]} = await client.query('SELECT is_active FROM users WHERE id=$1 FOR UPDATE',[req.user.id]);
     if (!account?.is_active) throw unavailable('This account is no longer active.',401);
+    await merchants.requireMerchant(req.user.id,body,client.query.bind(client));
     const {rows:[created]} = await client.query(`
     INSERT INTO deliveries (
       id, delivery_number, customer_id,
@@ -2051,10 +2069,10 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
       cargo_value, is_fragile, requires_refrigeration, temp_min_celsius, temp_max_celsius,
       insurance_requested, insurance_premium,
       base_fare, distance_fare, cold_chain_surcharge,
-      total_fare, currency, status, payment_method, request_key, request_fingerprint
+      total_fare, currency, status, payment_method, request_key, request_fingerprint, merchant_order_ref, cod_amount
     ) VALUES (
       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-      $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39
+      $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41
     )
     RETURNING *
   `, [
@@ -2067,7 +2085,7 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
     body.cargo_value ?? null, body.is_fragile, body.requires_refrigeration, body.temp_min_celsius ?? null, body.temp_max_celsius ?? null,
     body.insurance_requested, insurancePremium,
     pricing.breakdown?.base_fare ?? null, pricing.breakdown?.distance_fare ?? null, pricing.breakdown?.cold_chain_surcharge ?? null,
-    totalFare, pricing.currency || 'USD', 'pending', 'cash', requestKey, fingerprint
+    totalFare, pricing.currency || 'USD', 'pending', 'cash', requestKey, fingerprint, body.merchant_order_ref || null, body.cod_amount
   ]);
     return created;
   });
@@ -2075,6 +2093,7 @@ app.post('/api/v1/deliveries', { preHandler: [authenticate, requireDatabase, ide
     if (error.code === '23505') {
       const saved = await replayExisting();
       if (saved) return reply.code(201).send(deliveryCreatedResponse(saved));
+      if(error.constraint==='deliveries_merchant_order_unique') throw unavailable('This order reference already has a delivery. Find it in your merchant desk.',409);
     }
     throw error;
   }
@@ -2649,7 +2668,7 @@ app.get('/api/v1/driver/jobs/current', { preHandler: [authenticate, requireDatab
   `, [req.driver.id]);
   const { rows: deliveries } = await query(`
     SELECT id, delivery_number, status, pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng,
-           cargo_description, cargo_weight_kg, total_fare, currency, payment_method
+           cargo_description, cargo_weight_kg, total_fare, currency, payment_method, cod_amount, merchant_order_ref
     FROM deliveries WHERE driver_id = $1 AND status IN ('pending','pickup_scheduled','in_transit','out_for_delivery')
   `, [req.driver.id]);
   return reply.send({ trips, deliveries, driver: { status:req.driver.status, is_online:req.driver.is_online, onboarding_completed:req.driver.onboarding_completed }, respond_within_sec: driverResponseTimeoutMs / 1000 });
@@ -3126,6 +3145,9 @@ registerRecovery({ app, query, transaction, bcrypt, validate, requireDatabase, d
   } });
 
 registerSupport({app,query,validate,authenticate,requireDatabase,requireRole,auditLog});
+const areas=registerAreas({app,query,validate,authenticate,requireDatabase,requireRole,auditLog,
+  ready:()=>market.ready && (!isProduction || maps.enabled),timezone:market.timezone,required:areasRequired});
+const merchants=registerMerchants({app,query,transaction,validate,authenticate,requireDatabase,requireRole,market});
 registerAccount({ app,query,transaction,bcrypt,validate,authenticate,requireDatabase,
   onDeleted:async userId => {
     await Cache.del(`user:${userId}`);
@@ -3162,7 +3184,7 @@ async function processBackground(limit = 10) {
   }, limit);
   await payments.sweep(limit);
 }
-app.get('/api/v1/config', async () => ({ maps: maps.enabled, booking_available: market.ready && (!isProduction || maps.enabled), country:market.country, currency:market.currency, rates:market.rates || null, pricing_configured:market.ready, support_email:'tanzeelsam@gmail.com', account_recovery: 'offline_code', card_payments: cardsEnabled,
+app.get('/api/v1/config', async () => ({ maps: maps.enabled, booking_available: market.ready && (!isProduction || maps.enabled) && (!areasRequired || (dbConnected && await areas.hasActiveArea())), area_coverage_required:areasRequired, country:market.country, currency:market.currency, rates:market.rates || null, pricing_configured:market.ready, support_email:'tanzeelsam@gmail.com', account_recovery: 'offline_code', card_payments: cardsEnabled,
   stripe_publishable_key: cardsEnabled ? getEnv('STRIPE_PUBLISHABLE_KEY', '') : null,
   push_notifications: notifications.enabled, vapid_public_key: notifications.enabled ? getEnv('VAPID_PUBLIC_KEY', '') : null }));
 app.get('/api/v1/places/search', { preHandler: [authenticate], config: { rateLimit: { max: 20, timeWindow: 60000 } } }, async req => {
@@ -3382,7 +3404,7 @@ async function start() {
       dbConnected = true;
       logger.info('✅ Database connected');
       await ensureOperationalTables();
-      for (const migration of ['20261019085513_booking_payments_notifications.sql','20261024093153_release_recovery_cash_billing.sql','20261024093804_durable_delivery_requests.sql']) {
+      for (const migration of ['20261019085513_booking_payments_notifications.sql','20261024093153_release_recovery_cash_billing.sql','20261024093804_durable_delivery_requests.sql','20261105154028_area_availability_merchant_cod.sql']) {
         await db.query(fs.readFileSync(path.join(__dirname,'supabase/migrations',migration),'utf8'));
       }
       logger.info('✅ Operational tables ensured');

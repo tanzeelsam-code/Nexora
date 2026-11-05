@@ -7,6 +7,7 @@
     <title>Send a package · Nexora</title>
     <link rel="stylesheet" href="/portal.css" />
     <link rel="stylesheet" href="/customer.css" />
+    <link rel="stylesheet" href="/business.css" />
     <script defer src="/ui.js"></script>
     <script defer src="/session.js"></script>
     <script defer src="/freight.js"></script>
@@ -23,7 +24,7 @@
         <div class="nav-links">
           <a href="/customer.html">Book a ride</a
           ><a href="/freight.html" aria-current="page">Send a package</a
-          ><a href="/help.html">Help</a>
+          ><a href="/merchant.html">Merchant desk</a>
         </div>
         <button id="open-signin" class="secondary">Sign in</button>
       </nav>
@@ -88,6 +89,14 @@
             <section class="delivery-step" data-panel="1">
               <span class="eyebrow">01 / THE JOURNEY</span>
               <h2 tabindex="-1">Where’s it going?</h2>
+              <button
+                id="use-merchant-pickup"
+                type="button"
+                class="secondary"
+                hidden
+              >
+                Use saved business pickup
+              </button>
               <p>Search for an address, then choose the matching result.</p>
               <label for="pickup-address">Pickup address</label>
               <div class="address-search">
@@ -177,6 +186,15 @@
                     placeholder="Include country code"
                 /></label>
               </div>
+              <button
+                id="save-merchant-pickup"
+                type="button"
+                class="secondary"
+                hidden
+              >
+                Save this business pickup
+              </button>
+              <p id="merchant-pickup-status" role="status"></p>
               <h3>Who’s receiving it?</h3>
               <div class="grid">
                 <label
@@ -196,6 +214,33 @@
                     placeholder="Include country code"
                 /></label>
               </div>
+              <details id="business-delivery-fields" class="merchant-fields">
+                <summary>Business order & cash on delivery</summary>
+                <p class="help-copy">
+                  Create your <a href="/merchant.html">business profile</a> to
+                  track orders and collect goods payments. The recipient pays
+                  the goods amount plus the delivery fee.
+                </p>
+                <label
+                  >Order reference<input
+                    name="merchant_order_ref"
+                    maxlength="80"
+                    placeholder="For example, SHOP-1042"
+                /></label>
+                <label
+                  >Goods payment to collect<input
+                    name="cod_amount"
+                    type="number"
+                    min="0"
+                    max="1000000"
+                    step="0.01"
+                    value="0"
+                /></label>
+                <p id="cod-currency" class="help-copy">
+                  Enter 0 if the goods are already paid for. Delivery fees are
+                  always separate.
+                </p>
+              </details>
               <p class="fare-footnote">
                 Ready-to-collect packages only. The recipient pays the delivery
                 fee in cash on arrival. Please confirm they can pay. Scheduled

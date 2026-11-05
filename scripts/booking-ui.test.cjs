@@ -294,6 +294,36 @@ test("delivery rejects an expired quote and returns to editable details", async 
     f.close();
   }
 });
+test("COD review separates goods and fees and editing goods invalidates the quote", async () => {
+  const f = await fixture("freight", {
+    handler: (path) => (path === "/deliveries/estimate" ? quote() : undefined),
+  });
+  try {
+    await deliveryDetails(f);
+    f.input("merchant_order_ref", "ORDER-21");
+    f.input("cod_amount", "1500.55");
+    await f.submit("delivery");
+    assert.match(f.$("review-details").textContent, /1,500.55/);
+    assert.match(f.$("review-details").textContent, /1,513.05/);
+    assert.match(
+      f.$("quote-detail").textContent,
+      /delivery fee plus goods payment/,
+    );
+    assert.equal(
+      f.calls.find((c) => c.path === "/deliveries/estimate").body.cod_amount,
+      1500.55,
+    );
+    f.input("cod_amount", "2000");
+    assert.equal(f.$("quote").hidden, true);
+    await f.click("confirm");
+    assert.equal(
+      f.calls.some((c) => c.path === "/deliveries" && c.body),
+      false,
+    );
+  } finally {
+    f.close();
+  }
+});
 test("shared PIN dialog validates input and cancels without accepting an action", async () => {
   const f = await fixture("customer", { signedIn: false });
   try {
@@ -353,6 +383,9 @@ test("consumer navigation and assets resolve to real local files", () => {
     "help",
     "privacy",
     "terms",
+    "areas",
+    "merchant",
+    "business-workspace",
   ];
   for (const page of pages) {
     const dom = new JSDOM(read(page + ".html"), {

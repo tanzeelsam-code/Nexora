@@ -112,7 +112,8 @@ function registerAccount({
         } = await client.query(
           `SELECT
         EXISTS(SELECT 1 FROM trips WHERE customer_id=$1 AND payment_method='card' AND payment_status IN ('pending','authorized','disputed'))
-        OR EXISTS(SELECT 1 FROM driver_settlements WHERE driver_id=$2 AND transferred_at IS NULL) AS pending`,
+        OR EXISTS(SELECT 1 FROM driver_settlements WHERE driver_id=$2 AND transferred_at IS NULL)
+        OR EXISTS(SELECT 1 FROM deliveries WHERE (customer_id=$1 OR driver_id=$2) AND cod_collected_at IS NOT NULL AND cod_settled_at IS NULL) AS pending`,
           [user.id, driver?.id || null],
         );
         if (financial.pending)
@@ -123,6 +124,8 @@ function registerAccount({
         await client.query("DELETE FROM push_subscriptions WHERE user_id=$1", [
           user.id,
         ]);
+        await client.query("DELETE FROM merchant_profiles WHERE user_id=$1",[user.id]);
+        await client.query("DELETE FROM area_waitlist WHERE email=(SELECT lower(email) FROM users WHERE id=$1)",[user.id]);
         await client.query("DELETE FROM notifications WHERE user_id=$1", [
           user.id,
         ]);
@@ -140,7 +143,7 @@ function registerAccount({
         pickup_contact_name=NULL,pickup_contact_phone=NULL,dropoff_contact_name=NULL,dropoff_contact_phone=NULL,
         pickup_notes=NULL,dropoff_notes=NULL,pickup_otp=NULL,dropoff_otp=NULL,pickup_signature_url=NULL,
         pickup_photo_url=NULL,dropoff_signature_url=NULL,dropoff_photo_url=NULL,dropoff_recipient_name=NULL,
-        cargo_description='Removed',tracking_url=NULL,customer_review=NULL,request_fingerprint=NULL
+        cargo_description='Removed',tracking_url=NULL,customer_review=NULL,request_fingerprint=NULL,merchant_order_ref=NULL
         WHERE customer_id=$1`,
           [user.id],
         );

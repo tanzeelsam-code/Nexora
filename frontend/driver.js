@@ -190,7 +190,11 @@ $("payout-onboard").addEventListener("click", async () => {
 
 function renderOnline() {
   const btn = $("online-btn");
-  btn.textContent = online ? (trackingPaused ? "Confirm offline" : "Online") : "Go online";
+  btn.textContent = online
+    ? trackingPaused
+      ? "Confirm offline"
+      : "Online"
+    : "Go online";
   btn.setAttribute("aria-pressed", String(online));
   btn.style.color = online ? "var(--success)" : "var(--text-muted)";
 }
@@ -232,7 +236,8 @@ async function toggleOnline() {
     }
   } catch (err) {
     $("status-error").textContent = stopping
-      ? "Location sharing is paused on this device. Offline status was not confirmed; reconnect and retry. " + err.message
+      ? "Location sharing is paused on this device. Offline status was not confirmed; reconnect and retry. " +
+        err.message
       : err.message;
   } finally {
     renderOnline();
@@ -376,7 +381,7 @@ function jobCard(kind, job) {
   const buttons = actions
     .map(
       ([action, label], i) =>
-        `<button class="btn-action ${i > 0 ? "btn-secondary" : ""}" data-kind="${kind}" data-id="${esc(job.id)}" data-action="${action}" data-cash="${job.payment_method === "cash"}" data-fare="${esc(money(job.total_fare, job.currency))}">${esc(label)}</button>`,
+        `<button class="btn-action ${i > 0 ? "btn-secondary" : ""}" data-kind="${kind}" data-id="${esc(job.id)}" data-action="${action}" data-cash="${job.payment_method === "cash"}" data-cod="${Number(job.cod_amount || 0)}" data-total="${esc(money(Number(job.total_fare) + Number(job.cod_amount || 0), job.currency))}" data-fare="${esc(money(job.total_fare, job.currency))}">${esc(label)}</button>`,
     )
     .join("");
   return `
@@ -386,6 +391,7 @@ function jobCard(kind, job) {
             <div class="payout-pill">${money(job.total_fare, job.currency)}</div>
           </div>
           <h3 style="font-size: 15px; font-weight: 700;">${esc(title)}</h3>
+          ${kind === "delivery" && Number(job.cod_amount) > 0 ? `<p>Goods cash: <strong>${esc(money(job.cod_amount, job.currency))}</strong> · Delivery fee: ${esc(money(job.total_fare, job.currency))}<br>Total to collect: <strong>${esc(money(Number(job.total_fare) + Number(job.cod_amount), job.currency))}</strong>. Goods cash belongs to the merchant.</p>` : ""}
           <div class="address-flow">
             <div class="addr-point"><span>Pickup</span>${esc(job.pickup_address)}</div>
             <div class="addr-point"><span>Dropoff</span>${esc(job.dropoff_address)}</div>
@@ -433,7 +439,13 @@ $("jobs").addEventListener("click", async (e) => {
   if (!btn) return;
   const { kind, id, action } = btn.dataset;
   if (action === "pod")
-    return openPodModal(id, btn.dataset.cash === "true", btn.dataset.fare);
+    return openPodModal(
+      id,
+      btn.dataset.cash === "true",
+      btn.dataset.fare,
+      Number(btn.dataset.cod || 0),
+      btn.dataset.total,
+    );
 
   $("status-error").textContent = "";
   const body = {};
@@ -527,11 +539,14 @@ canvas.addEventListener("touchstart", startDraw, { passive: false });
 canvas.addEventListener("touchmove", draw, { passive: false });
 window.addEventListener("touchend", stopDraw);
 
-function openPodModal(deliveryId, isCash, fare) {
+function openPodModal(deliveryId, isCash, fare, cod = 0, total = fare) {
+  $("pod-modal").dataset.cod = String(cod);
   $("pod-cash-row").hidden = !isCash;
   $("pod-cash").checked = false;
   $("pod-cash-label").textContent =
-    `I collected ${fare} in cash from the recipient`;
+    cod > 0
+      ? `I collected ${total} from the recipient, including ${fare} delivery fee and the goods payment shown on this job.`
+      : `I collected ${fare} in cash from the recipient`;
   podDeliveryId = deliveryId;
   $("pod-otp").value = "";
   $("pod-recipient").value = "";
@@ -577,6 +592,7 @@ async function submitPod() {
           otp,
           recipient_name: recipient,
           cash_collected: $("pod-cash").checked,
+          cod_collected_amount: Number($("pod-modal").dataset.cod || 0),
           pod_signature: canvas.toDataURL("image/png"),
         }),
       },
@@ -613,7 +629,8 @@ async function startApp() {
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && store.get(TOKEN_KEY)) {
     loadJobs();
-    if (online && !trackingPaused && !nativeRunning) updateLocation().catch(() => {});
+    if (online && !trackingPaused && !nativeRunning)
+      updateLocation().catch(() => {});
   }
 });
 window.addEventListener("pageshow", (event) => {

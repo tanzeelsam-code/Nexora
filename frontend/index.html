@@ -10,8 +10,10 @@
     />
     <title>Nexora · Your city, a little closer</title>
     <link rel="stylesheet" href="/portal.css" />
+    <link rel="stylesheet" href="/business.css" />
     <script defer src="/ui.js"></script>
     <script defer src="/home.js"></script>
+    <script defer src="/areas.js"></script>
     <script defer src="/availability.js"></script>
     <script src="/network.js"></script>
   </head>
@@ -25,7 +27,7 @@
         <div class="nav-links">
           <a href="/customer.html">Book a ride</a
           ><a href="/freight.html">Send a package</a
-          ><a href="/help.html">Help</a>
+          ><a href="/merchant.html">For business</a>
         </div>
         <a class="nav-account" href="/customer.html#signin"
           >Sign in
@@ -38,9 +40,7 @@
       </p>
       <section class="booking-hero">
         <div class="hero-copy">
-          <span class="eyebrow"
-            >ACROSS <span data-service-areas>Pakistan</span></span
-          >
+          <span class="eyebrow">LOCAL RIDES & DELIVERIES</span>
           <h1>Your city.<br />A little closer.</h1>
           <p>
             A ride across town. A package to their door.<br />One place to get
@@ -152,6 +152,13 @@
           >
         </div>
       </section>
+      <section
+        class="area-checker"
+        data-area-checker
+        aria-label="Area availability"
+      >
+        <p>Check local service availability before signing in.</p>
+      </section>
       <section class="services-section" aria-labelledby="services-title">
         <div class="section-title-row">
           <div>
@@ -233,7 +240,7 @@
             planning a booking.
           </p>
         </div>
-        <a class="button secondary" href="/help.html#coverage"
+        <a class="button secondary" href="/areas.html"
           >Check service areas
           <svg class="icon" aria-hidden="true">
             <use href="/assets/icons.svg#arrow" /></svg
